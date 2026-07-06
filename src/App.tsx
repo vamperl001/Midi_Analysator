@@ -42,7 +42,7 @@ import { AdvancedCharts } from './components/AdvancedCharts';
 import { SessionComparison } from './components/SessionComparison';
 import { CreativeVisualizer } from './components/CreativeVisualizer';
 import { StudentProgress } from './components/StudentProgress';
-import { saveSessionToCloud, loadSessionsFromCloud, deleteSessionFromCloud } from './firebase';
+import { saveSessionToCloud, loadSessionsFromCloud, deleteSessionFromCloud, loadSessionNotesFromCloud } from './firebase';
 import { enrichSessionWithAdvancedMetrics } from './medientechnikAnalysis';
 import { CountUp } from './components/CountUp';
 
@@ -91,19 +91,19 @@ export default function App() {
   useEffect(() => {
     async function loadCloudSessions() {
       setIsCloudSyncing(true);
-      setCloudSyncMessage("📡 Verbinde mit HAW-Hamburg Cloud-Datenbank (Firestore)...");
+      setCloudSyncMessage("📡 Verbinde mit SQLite-Datenbank...");
       try {
         const cloudSessions = await loadSessionsFromCloud();
         if (cloudSessions.length > 0) {
           const enriched = cloudSessions.map(enrichSessionWithAdvancedMetrics);
           setLoadedFiles(enriched);
-          setCloudSyncMessage(`📂 ${cloudSessions.length} HAW-Bewerbungssitzungen erfolgreich geladen! (Dauerhaft in der Datenbank hinterlegt)`);
+          setCloudSyncMessage(`📂 ${cloudSessions.length} Sitzungen erfolgreich geladen! (Dauerhaft in der Datenbank hinterlegt)`);
         } else {
-          setCloudSyncMessage("ℹ️ Keine permanenten Sitzungen in der Cloud-Datenbank gefunden. Lade Demodaten oder lade eigene .als / .mid Sequenzen hoch, um sie in der Cloud zu sichern.");
+          setCloudSyncMessage("ℹ️ Keine Sitzungen in der Datenbank gefunden. Lade Dateien hoch, um sie automatisch zu speichern.");
         }
       } catch (err: any) {
-        console.error("Fehler beim Cloud-Initialisieren:", err);
-        setCloudSyncMessage("⚠️ Verbindung zur Cloud-Datenbank fehlgeschlagen. Lokale RAM-Speicherung aktiv.");
+        console.error("Fehler beim Laden aus der Datenbank:", err);
+        setCloudSyncMessage("⚠️ Datenbank-Laden fehlgeschlagen. Lokale RAM-Speicherung aktiv.");
       } finally {
         setIsCloudSyncing(false);
         // Nachricht nach 6 Sekunden ausblenden
@@ -113,14 +113,42 @@ export default function App() {
     loadCloudSessions();
   }, []);
 
-  // --- Speicher- / Löschfunktionen für Sessions in Firestore ---
+  // Lazy-load notes and heavy fields when a specific session is selected
+  useEffect(() => {
+    async function loadNotesForSelection() {
+      const targetSession = selectedFileIdx !== null ? loadedFiles[selectedFileIdx] : null;
+      if (!targetSession || !targetSession.cloudDocId) return;
+      if (targetSession.notes.length > 0) return; // schon geladen
+
+      try {
+        const sessionData = await loadSessionNotesFromCloud(targetSession.cloudDocId);
+        setLoadedFiles(prev => {
+          const copy = [...prev];
+          const idx = copy.findIndex(f => f.cloudDocId === targetSession.cloudDocId);
+          if (idx !== -1) {
+            copy[idx] = {
+              ...copy[idx],
+              notes: sessionData.notes,
+              notesCount: sessionData.notes.length,
+              teacherStudentSplit: sessionData.teacherStudentSplit,
+              slidingTempo: sessionData.slidingTempo,
+              pedalAnalysis: sessionData.pedalAnalysis,
+            };
+          }
+          return copy;
+        });
+      } catch (err) {
+        console.warn("Fehler beim Laden der Noten:", err);
+      }
+    }
+    loadNotesForSelection();
+  }, [selectedFileIdx]);
   const handleSaveToCloud = async (session: AlsFileStats, index: number) => {
     setIsCloudSaving(session.fileName);
-    setCloudSyncMessage(`Saving '${session.fileName}'...`);
+    setCloudSyncMessage(`Speichere '${session.fileName}'...`);
     try {
       const docId = await saveSessionToCloud(session);
       
-      // Zustand lokal aktualisieren, so dass cloudDocId direkt gesetzt ist!
       setLoadedFiles(prev => {
         const copy = [...prev];
         const fIdx = prev.findIndex(p => p.fileName === session.fileName && p.date === session.date);
@@ -133,10 +161,10 @@ export default function App() {
         return copy;
       });
       
-      setCloudSyncMessage(`☁️ '${session.fileName}' dauerhaft in der HAW Application-Datenbank gesichert!`);
+      setCloudSyncMessage(`✓ '${session.fileName}' dauerhaft in der Datenbank gesichert!`);
     } catch (err: any) {
       console.error(err);
-      setErrorString(`Cloud-Fehler beim Speichern: ${err.message || err}`);
+      setErrorString(`DB-Fehler beim Speichern: ${err.message || err}`);
     } finally {
       setIsCloudSaving(null);
       setTimeout(() => setCloudSyncMessage(null), 4000);
@@ -145,49 +173,46 @@ export default function App() {
 
   const handleDeleteFromCloud = async (session: AlsFileStats) => {
     if (!session.cloudDocId) return;
-    if (!confirm(`Sitzung '${session.fileName}' wirklich dauerhaft aus der Cloud-Datenbank löschen?`)) return;
+    if (!confirm(`Sitzung '${session.fileName}' wirklich dauerhaft aus der Datenbank löschen?`)) return;
     
     setIsCloudSyncing(true);
     setCloudSyncMessage(`Lösche '${session.fileName}'...`);
     try {
       await deleteSessionFromCloud(session.cloudDocId);
       
-      // Zustand lokal aktualisieren (entferne cloudDocId oder filter)
       setLoadedFiles(prev => {
         const copy = [...prev];
         const fIdx = prev.findIndex(p => p.fileName === session.fileName && p.date === session.date);
         if (fIdx !== -1) {
-          // Cloud-Markierung entfernen
           delete copy[fIdx].cloudDocId;
         }
         return copy;
       });
       
-      setCloudSyncMessage(`🗑️ '${session.fileName}' erfolgreich aus der Cloud-Datenbank gelöscht!`);
+      setCloudSyncMessage(`✓ '${session.fileName}' erfolgreich aus der Datenbank gelöscht!`);
     } catch (err: any) {
       console.error(err);
-      setErrorString(`Cloud-Fehler beim Löschen: ${err.message || err}`);
+      setErrorString(`DB-Fehler beim Löschen: ${err.message || err}`);
     } finally {
       setIsCloudSyncing(false);
       setTimeout(() => setCloudSyncMessage(null), 4000);
     }
   };
 
-  // Alle ungesicherten Sessions nacheinander in die Cloud-Datenbank speichern (Bulk-Upload)
+  // Alle ungesicherten Sessions nacheinander in die Datenbank speichern (Bulk-Upload)
   const handleSaveAllToCloud = async () => {
     const unsaved = loadedFiles.filter(f => !f.cloudDocId);
     if (unsaved.length === 0) return;
     
     setIsCloudSyncing(true);
-    setCloudSyncMessage(`Sichere ${unsaved.length} Sitzungen nacheinander in der Cloud...`);
+    setCloudSyncMessage(`Sichere ${unsaved.length} Sitzungen in der Datenbank...`);
     let successCount = 0;
     try {
       for (let i = 0; i < unsaved.length; i++) {
         const session = unsaved[i];
-        setCloudSyncMessage(`Sichere (${i + 1}/${unsaved.length}): '${session.fileName}' in der Cloud...`);
+        setCloudSyncMessage(`Sichere (${i + 1}/${unsaved.length}): '${session.fileName}'...`);
         const docId = await saveSessionToCloud(session);
         
-        // Zustand lokal aktualisieren
         setLoadedFiles(prev => {
           const copy = [...prev];
           const fIdx = prev.findIndex(p => p.fileName === session.fileName && p.date === session.date);
@@ -201,10 +226,10 @@ export default function App() {
         });
         successCount++;
       }
-      setCloudSyncMessage(`☁️ Alle ${successCount} Sitzungen erfolgreich in der Cloud-Datenbank gesichert!`);
+      setCloudSyncMessage(`✓ Alle ${successCount} Sitzungen erfolgreich in der Datenbank gesichert!`);
     } catch (err: any) {
       console.error(err);
-      setErrorString(`Fehler bei der Massensicherung: ${err.message || err}. ${successCount} Sitzungen wurden gesichert.`);
+      setErrorString(`Fehler bei Massensicherung: ${err.message || err}. ${successCount} Sitzungen gesichert.`);
     } finally {
       setIsCloudSyncing(false);
       setTimeout(() => setCloudSyncMessage(null), 6000);
@@ -238,6 +263,39 @@ export default function App() {
   // --- Vergleichsmodus (Compare Mode) ---
   const [compareMode, setCompareMode] = useState<boolean>(false);
   const [comparedIndices, setComparedIndices] = useState<number[]>([]);
+
+  // Lazy-load in compare mode (muss nach comparedIndices kommen)
+  useEffect(() => {
+    async function loadNotesForCompare() {
+      if (!compareMode) return;
+      for (const idx of comparedIndices) {
+        const session = loadedFiles[idx];
+        if (!session || !session.cloudDocId) continue;
+        if (session.notes.length > 0) continue;
+        try {
+          const sessionData = await loadSessionNotesFromCloud(session.cloudDocId);
+          setLoadedFiles(prev => {
+            const copy = [...prev];
+            const fIdx = copy.findIndex(f => f.cloudDocId === session.cloudDocId);
+            if (fIdx !== -1) {
+              copy[fIdx] = {
+                ...copy[fIdx],
+                notes: sessionData.notes,
+                notesCount: sessionData.notes.length,
+                teacherStudentSplit: sessionData.teacherStudentSplit,
+                slidingTempo: sessionData.slidingTempo,
+                pedalAnalysis: sessionData.pedalAnalysis,
+              };
+            }
+            return copy;
+          });
+        } catch (err) {
+          console.warn("Fehler beim Laden der Noten:", err);
+        }
+      }
+    }
+    loadNotesForCompare();
+  }, [compareMode, comparedIndices]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -275,9 +333,9 @@ export default function App() {
     for (let i = 0; i < sortedFiles.length; i++) {
       const file = sortedFiles[i];
       const ext = file.name.split('.').pop()?.toLowerCase();
-      const validExtensions = ['als', 'mid', 'midi', 'band', 'mp3', 'wav', 'm4a', 'caf'];
+      const validExtensions = ['als', 'mid', 'midi', 'band', 'zip', 'mp3', 'wav', 'm4a', 'caf'];
       if (!ext || !validExtensions.includes(ext)) {
-        setErrorString(`Datei '${file.name}' übersprungen: Ungültige Endung. Unterstützt werden .als, .mid, .midi, .band, .mp3, .wav, .m4a und .caf.`);
+        setErrorString(`Datei '${file.name}' übersprungen: Ungültige Endung. Unterstützt werden .als, .mid, .midi, .band, .zip, .mp3, .wav, .m4a und .caf.`);
         continue;
       }
       try {
@@ -564,7 +622,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tighter uppercase text-white flex flex-wrap items-baseline gap-2">
-                ABLETON_LIVE_MIDI_TIMING_ANALYZER
+                MIDI ANALYSE - HALBES JAHR MUSIKUNTERRICHT
                 <span className="text-[10px] bg-indigo-600 text-white font-mono font-bold px-2 py-0.5 rounded tracking-wider">v2.0-DARK</span>
               </h1>
               <p className="text-xs text-slate-500 font-mono tracking-widest mt-0.5 uppercase">
@@ -649,14 +707,14 @@ export default function App() {
                 ref={fileInputRef} 
                 onChange={handleFileChange} 
                 multiple 
-                accept=".als,.mid,.midi,.band,.mp3,.wav,.m4a,.caf" 
+                accept="*/*" 
                 className="hidden" 
               />
               <FileUp className={`w-8 h-8 mb-2 transition-transform duration-300 ${dragActive ? 'scale-110 text-indigo-400' : 'text-slate-500'}`} />
               
-              <span className="text-xs font-semibold text-slate-200">Dateien einspielen (.als, .mid, .midi, .band, .mp3, .wav, .m4a, .caf)</span>
+              <span className="text-xs font-semibold text-slate-200">Dateien einspielen (.als, .mid, .midi, .band, .zip, .mp3, .wav, .m4a, .caf)</span>
               <span className="text-[10px] text-slate-500 font-serif italic mt-1 leading-normal max-w-xs">
-                Zieh Ableton (.als), MIDI, GarageBand (.band) oder Klick-freies Audio hierhin.
+                Zieh Ableton (.als), MIDI, GarageBand (.band, .zip) oder Klick-freies Audio hierhin.
               </span>
             </div>
           </div>
@@ -878,13 +936,13 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Cloud-Sicherung */}
+                  {/* Datenbank-Sicherung */}
                   {loadedFiles.some(f => !f.cloudDocId) && (
                     <div className="mt-4 pt-3 border-t border-slate-700/50 flex flex-col gap-2" id="bulk-cloud-actions">
                       <div className="flex justify-between items-center">
                         <span className="text-slate-400 uppercase font-bold text-[9px] tracking-wider font-mono flex items-center gap-1">
-                          <Cloud className="w-3 h-3 text-sky-400" />
-                          Cloud ({loadedFiles.filter(f => !f.cloudDocId).length} ungesichert)
+                          <Database className="w-3 h-3 text-sky-400" />
+                          Datenbank ({loadedFiles.filter(f => !f.cloudDocId).length} ungesichert)
                         </span>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
@@ -895,7 +953,63 @@ export default function App() {
                           className="w-full h-9 bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[10px] font-bold px-2 rounded border border-emerald-500 transition-all shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
                         >
                           <CloudUpload className="w-3.5 h-3.5" />
-                          ALLE IN CLOUD SPEICHERN
+                          ALLE IN DB SPEICHERN
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {/* Alle Daten aus DB laden */}
+                  {loadedFiles.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-slate-700/50 flex flex-col gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
+                        <button
+                          id="btn-load-all-cloud"
+                          onClick={async () => {
+                            setIsCloudSyncing(true);
+                            setCloudSyncMessage("📡 Lade alle Sessions nacheinander...");
+                            const { loadSessionNotesFromCloud } = await import('./firebase');
+                            let loaded = 0;
+                            const total = loadedFiles.filter(s => s.cloudDocId && s.notes.length === 0).length;
+                            if (total === 0) {
+                              setCloudSyncMessage("✓ Alle Sessions bereits geladen.");
+                              setTimeout(() => setCloudSyncMessage(null), 2000);
+                              setIsCloudSyncing(false);
+                              return;
+                            }
+                            for (const session of loadedFiles) {
+                              if (!session.cloudDocId || session.notes.length > 0) continue;
+                              try {
+                                const sessionData = await loadSessionNotesFromCloud(session.cloudDocId);
+                                setLoadedFiles(prev => {
+                                  const copy = [...prev];
+                                  const idx = copy.findIndex(s => s.cloudDocId === session.cloudDocId);
+                                  if (idx !== -1) {
+                                    copy[idx] = {
+                                      ...copy[idx],
+                                      notes: sessionData.notes,
+                                      notesCount: sessionData.notes.length,
+                                      teacherStudentSplit: sessionData.teacherStudentSplit,
+                                      slidingTempo: sessionData.slidingTempo,
+                                      pedalAnalysis: sessionData.pedalAnalysis,
+                                    };
+                                  }
+                                  return copy;
+                                });
+                                loaded++;
+                                setCloudSyncMessage(`📡 Lade Sessions... ${loaded}/${total}`);
+                              } catch (err) {
+                                console.warn(`Fehler bei ${session.fileName}:`, err);
+                              }
+                            }
+                            setCloudSyncMessage(`✓ ${loaded} Sessions vollständig geladen!`);
+                            setTimeout(() => setCloudSyncMessage(null), 4000);
+                            setIsCloudSyncing(false);
+                          }}
+                          disabled={isCloudSyncing}
+                          className="w-full h-9 bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-[10px] font-bold px-2 rounded border border-indigo-500/50 transition-all shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <Database className="w-3.5 h-3.5" />
+                          ALLE AUS DB LADEN ({loadedFiles.filter(s => s.cloudDocId && s.notes.length === 0).length} fehlen)
                         </button>
                       </div>
                     </div>

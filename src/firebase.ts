@@ -1,129 +1,122 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, setDoc } from "firebase/firestore";
 import { AlsFileStats } from "./types";
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
-
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, import.meta.env.VITE_FIREBASE_DATABASE_ID);
-
-const SESSIONS_COLLECTION = "sessions";
+const API = "/sessions";
 
 export async function saveSessionToCloud(session: AlsFileStats): Promise<string> {
-  try {
-    const colRef = collection(db, SESSIONS_COLLECTION);
-    
-    // Duplikatsprüfung: Gibt es bereits ein Dokument mit diesem fileName in der Cloud?
-    let existingDocId: string | null = null;
-    const q = query(colRef, where("fileName", "==", session.fileName));
-    const querySnapshot = await getDocs(q);
-    if (!querySnapshot.empty) {
-      existingDocId = querySnapshot.docs[0].id;
-    }
+  const payload: Record<string, unknown> = {
+    fileName: session.fileName,
+    date: session.date,
+    time: session.time,
+    weekday: session.weekday,
+    tempo: session.tempo,
+    estimatedBpm: session.estimatedBpm,
+    notesCount: session.notesCount,
+    avgVelocity: session.avgVelocity,
+    avgDriftMs: session.avgDriftMs,
+    swingFactor16th: session.swingFactor16th,
+    estimatedKey: session.estimatedKey,
+    styleCategory: session.styleCategory,
+    structureCategory: session.structureCategory,
+    focusScore: session.focusScore,
+    teacherStudentSplit: session.teacherStudentSplit,
+    velocitySpread: session.velocitySpread,
+    polyphony: session.polyphony,
+    slidingTempo: session.slidingTempo,
+    pedalAnalysis: session.pedalAnalysis,
+    notes: session.notes.map(n => ({
+      key: n.key,
+      noteName: n.noteName,
+      velocity: n.velocity,
+      time: n.time,
+      gridOffset: n.gridOffset || 0,
+      gridOffsetMs: n.gridOffsetMs || 0,
+      nearestGrid: n.nearestGrid || 0,
+      trackName: n.trackName || "",
+    })),
+  };
 
-    const docData = {
-      id: existingDocId || session.cloudDocId || Math.random().toString(36).substr(2, 9),
-      fileName: session.fileName,
-      fileSize: 0,
-      fileType: "midi",
-      sessionDate: session.date || new Date().toISOString().split('T')[0],
-      tempo: session.tempo || 120,
-      estimatedBpm: session.estimatedBpm || session.tempo || 120,
-      notesCount: session.notesCount,
-      avgVelocity: session.avgVelocity || 0,
-      avgDriftMs: session.avgDriftMs || 0,
-      avgSwing: session.swingFactor16th || 0,
-      estimatedKey: session.estimatedKey || "Unbekannt",
-      styleCategory: session.styleCategory || "Melodisch",
-      structureCategory: session.structureCategory || "Klassisches Stück",
-      notes: session.notes.slice(0, 1500).map(n => ({
-        key: n.key,
-        noteName: n.noteName,
-        velocity: n.velocity,
-        time: n.time,
-        gridOffset: n.gridOffset || 0,
-        gridOffsetMs: n.gridOffsetMs || 0,
-        nearestGrid: n.nearestGrid || 0,
-        trackName: n.trackName || ""
-      })),
-      createdAt: new Date().toISOString()
-    };
-    
-    if (existingDocId) {
-      // Wenn bereits in der Cloud vorhanden, überschreiben wir das Dokument direkt
-      const existingDocRef = doc(db, SESSIONS_COLLECTION, existingDocId);
-      await setDoc(existingDocRef, docData);
-      return existingDocId;
-    } else {
-      const docRef = await addDoc(colRef, docData);
-      return docRef.id;
-    }
-  } catch (error) {
-    console.error("Fehler beim Speichern in der Cloud-Datenbank:", error);
-    throw error;
+  const res = await fetch(API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Backend-Fehler (${res.status}): ${text}`);
   }
+  const data = await res.json();
+  return data.id;
+}
+
+function mapSessionItem(item: Record<string, unknown>, notes: AlsFileStats["notes"]): AlsFileStats {
+  return {
+    cloudDocId: item["id"] as string,
+    fileName: item["fileName"] as string,
+    date: (item["date"] as string) || "",
+    time: (item["time"] as string) || "",
+    weekday: (item["weekday"] as number) ?? 0,
+    tempo: Number(item["tempo"] || 120),
+    estimatedBpm: item["estimatedBpm"] ? Number(item["estimatedBpm"]) : undefined,
+    notesCount: Number(item["notesCount"] || notes.length),
+    avgVelocity: Number(item["avgVelocity"] || 0),
+    avgDriftMs: Number(item["avgDriftMs"] || 0),
+    swingFactor16th: Number(item["swingFactor16th"] || 50),
+    estimatedKey: (item["estimatedKey"] as string) || "Unbekannt",
+    styleCategory: (item["styleCategory"] as AlsFileStats["styleCategory"]) || "Melodisch",
+    structureCategory: (item["structureCategory"] as AlsFileStats["structureCategory"]) || "Klassisches Stück",
+    focusScore: item["focusScore"] ? Number(item["focusScore"]) : undefined,
+    teacherStudentSplit: item["teacherStudentSplit"] as AlsFileStats["teacherStudentSplit"],
+    velocitySpread: item["velocitySpread"] as AlsFileStats["velocitySpread"],
+    polyphony: item["polyphony"] as AlsFileStats["polyphony"],
+    slidingTempo: item["slidingTempo"] as AlsFileStats["slidingTempo"],
+    pedalAnalysis: item["pedalAnalysis"] as AlsFileStats["pedalAnalysis"],
+    notes,
+  };
 }
 
 export async function loadSessionsFromCloud(): Promise<AlsFileStats[]> {
-  try {
-    const colRef = collection(db, SESSIONS_COLLECTION);
-    const q = query(colRef, orderBy("createdAt", "desc"));
-    const snapshot = await getDocs(q);
-    const sessions: AlsFileStats[] = [];
-    
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      const rawNotes = data.notes || [];
-      const mappedNotes = rawNotes.map((n: any, idx: number) => ({
-        id: n.id || `${data.fileName}-${idx}`,
-        key: n.key !== undefined ? n.key : (n.pitch !== undefined ? n.pitch : 60),
-        noteName: n.noteName || "C3",
-        time: n.time || 0,
-        duration: n.duration !== undefined ? n.duration : 0.25,
-        velocity: n.velocity !== undefined ? n.velocity : 100,
-        gridOffset: n.gridOffset !== undefined ? n.gridOffset : 0,
-        gridOffsetMs: n.gridOffsetMs !== undefined ? n.gridOffsetMs : 0,
-        nearestGrid: n.nearestGrid !== undefined ? n.nearestGrid : 0,
-        trackName: n.trackName || "Midi"
-      }));
+  const res = await fetch(API);
+  if (!res.ok) return [];
+  const list: Record<string, unknown>[] = await res.json();
+  return list.map(item => mapSessionItem(item, []));
+}
 
-      sessions.push({
-        cloudDocId: doc.id,
-        fileName: data.fileName,
-        date: data.sessionDate || data.date || new Date().toISOString().split('T')[0],
-        tempo: data.tempo || 120,
-        estimatedBpm: data.estimatedBpm || data.tempo || 120,
-        notesCount: data.notesCount || mappedNotes.length,
-        avgVelocity: data.avgVelocity || 0,
-        avgDriftMs: data.avgDriftMs || 0,
-        swingFactor16th: data.avgSwing || 0,
-        estimatedKey: data.estimatedKey || "Unbekannt",
-        styleCategory: data.styleCategory || "Melodisch",
-        structureCategory: data.structureCategory || "Klassisches Stück",
-        notes: mappedNotes
-      });
-    });
-    
-    return sessions;
-  } catch (error) {
-    console.error("Fehler beim Laden aus der Cloud-Datenbank:", error);
-    return [];
-  }
+export async function loadSessionNotesFromCloud(docId: string): Promise<{
+  notes: AlsFileStats["notes"];
+  teacherStudentSplit: AlsFileStats["teacherStudentSplit"];
+  slidingTempo: AlsFileStats["slidingTempo"];
+  pedalAnalysis: AlsFileStats["pedalAnalysis"];
+}> {
+  const res = await fetch(`${API}/${encodeURIComponent(docId)}`);
+  if (!res.ok) return { notes: [], teacherStudentSplit: undefined, slidingTempo: undefined, pedalAnalysis: undefined };
+  const session: Record<string, unknown> = await res.json();
+  const rawNotes = (session["notes"] as Record<string, unknown>[]) || [];
+  const notes: AlsFileStats["notes"] = rawNotes.map((n: Record<string, unknown>, idx: number) => ({
+    id: (n["id"] as string) || `${session["fileName"]}-${idx}`,
+    key: n["key"] !== undefined ? Number(n["key"]) : 60,
+    noteName: (n["noteName"] as string) || "C3",
+    time: Number(n["time"] || 0),
+    duration: n["duration"] !== undefined ? Number(n["duration"]) : 0.25,
+    velocity: n["velocity"] !== undefined ? Number(n["velocity"]) : 100,
+    gridOffset: n["gridOffset"] !== undefined ? Number(n["gridOffset"]) : 0,
+    gridOffsetMs: n["gridOffsetMs"] !== undefined ? Number(n["gridOffsetMs"]) : 0,
+    nearestGrid: n["nearestGrid"] !== undefined ? Number(n["nearestGrid"]) : 0,
+    trackName: (n["trackName"] as string) || "Midi",
+  }));
+  return {
+    notes,
+    teacherStudentSplit: session["teacherStudentSplit"] as AlsFileStats["teacherStudentSplit"],
+    slidingTempo: session["slidingTempo"] as AlsFileStats["slidingTempo"],
+    pedalAnalysis: session["pedalAnalysis"] as AlsFileStats["pedalAnalysis"],
+  };
 }
 
 export async function deleteSessionFromCloud(docId: string): Promise<void> {
-  try {
-    const docRef = doc(db, SESSIONS_COLLECTION, docId);
-    await deleteDoc(docRef);
-  } catch (error) {
-    console.error("Fehler beim Loschen aus der Cloud-Datenbank:", error);
-    throw error;
+  const res = await fetch(`${API}/${encodeURIComponent(docId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Backend-Fehler beim Löschen (${res.status}): ${text}`);
   }
 }

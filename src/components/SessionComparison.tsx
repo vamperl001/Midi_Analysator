@@ -54,30 +54,30 @@ export const SessionComparison: React.FC<SessionComparisonProps> = ({ sessionA, 
   // Utility to determine badge styling based on drift
   const getDriftBadge = (drift: number) => {
     if (drift < 9) {
-      return {
-        text: "Exzellent (Ultra-Tight)",
-        color: "text-emerald-700 bg-emerald-50 border-emerald-200",
-        icon: <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+    return {
+      text: "Exzellent (Ultra-Tight)",
+      color: "text-emerald-300 bg-emerald-900/30 border-emerald-800/50",
+      icon: <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
       };
     }
     if (drift <= 17) {
       return {
         text: "Menschlicher Groove (Balanced)",
-        color: "text-blue-700 bg-blue-50 border-blue-200",
-        icon: <Zap className="w-3.5 h-3.5 text-blue-500" />
+        color: "text-blue-300 bg-blue-900/30 border-blue-800/50",
+        icon: <Zap className="w-3.5 h-3.5 text-blue-400" />
       };
     }
     if (drift <= 30) {
       return {
         text: "Lockerer Offbeat (Laid-back)",
-        color: "text-amber-700 bg-amber-50 border-amber-200",
-        icon: <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
+        color: "text-amber-300 bg-amber-900/30 border-amber-800/50",
+        icon: <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
       };
     }
     return {
       text: "Hohe Jitter-Drift (Achtung)",
-      color: "text-rose-700 bg-rose-50 border-rose-200 animate-pulse",
-      icon: <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-bounce" />
+      color: "text-rose-300 bg-rose-900/30 border-rose-800/50",
+      icon: <AlertTriangle className="w-3.5 h-3.5 text-rose-400 animate-bounce" />
     };
   };
 
@@ -85,29 +85,29 @@ export const SessionComparison: React.FC<SessionComparisonProps> = ({ sessionA, 
   const badgeB = getDriftBadge(sessionB.avgDriftMs);
 
   return (
-    <div className="bg-white border-2 border-slate-900 rounded-lg shadow-md p-6 relative overflow-hidden" id="session-comparison-card">
+    <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 relative overflow-hidden" id="session-comparison-card">
       {/* Decorative background visual badge */}
-      <div className="absolute right-0 top-0 translate-x-12 -translate-y-8 text-slate-100 font-mono text-[90px] font-black select-none pointer-events-none opacity-40">
+      <div className="absolute right-0 top-0 translate-x-12 -translate-y-8 text-slate-800 font-mono text-[90px] font-black select-none pointer-events-none opacity-20">
         VS
       </div>
 
-      <div className="flex justify-between items-center border-b border-slate-200 pb-4 mb-5">
+      <div className="flex justify-between items-center border-b border-slate-700/50 pb-4 mb-5">
         <div className="flex items-center gap-2">
-          <div className="bg-slate-900 text-white p-1.5 rounded">
+          <div className="bg-slate-800 text-white p-1.5 rounded">
             <ArrowLeftRight className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-xs font-bold tracking-widest text-slate-800 uppercase font-mono">
-              ⚡ SITZUNGS-DIREKTVERGLEICH (ZWEI-SESSIONS-KONFLIKT-ANALYSE)
+            <h3 className="text-xs font-bold tracking-widest text-slate-100 uppercase font-mono">
+              ⚡ SITZUNGS-DIREKTVERGLEICH
             </h3>
-            <p className="text-xs text-slate-500 mt-1 italic font-serif">
-              Gegenüberstellung zweier spezifischer Einspielungen zur detaillierten Timing- und Groovedifferenzierung.
+            <p className="text-xs text-slate-400 mt-1 italic font-serif">
+              Gegenüberstellung zweier Einspielungen zur Timing- und Groovedifferenzierung.
             </p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="text-xs font-mono text-slate-400 hover:text-slate-950 border border-slate-200 hover:border-slate-350 px-2.5 py-1 rounded transition-all cursor-pointer bg-slate-50"
+          className="text-xs font-mono text-slate-400 hover:text-slate-200 border border-slate-700/50 hover:border-slate-500 px-2.5 py-1 rounded transition-all cursor-pointer bg-slate-800/40"
         >
           X VERGLEICH BEENDEN
         </button>
@@ -117,28 +117,28 @@ export const SessionComparison: React.FC<SessionComparisonProps> = ({ sessionA, 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative">
         
         {/* Divider line for desktop */}
-        <div className="hidden md:block absolute left-1/2 top-4 bottom-4 w-px bg-slate-200 -translate-x-1/2"></div>
+        <div className="hidden md:block absolute left-1/2 top-4 bottom-4 w-px bg-slate-700/50 -translate-x-1/2"></div>
         
         {/* SESSION A (Left Side) */}
         <div className="space-y-4">
           <div className="flex items-center gap-2">
-            <span className="w-5 h-5 bg-slate-900 text-white font-mono text-xs font-bold flex items-center justify-center rounded-full">A</span>
+            <span className="w-5 h-5 bg-slate-700 text-white font-mono text-xs font-bold flex items-center justify-center rounded-full">A</span>
             <div>
-              <h4 className="text-sm font-bold text-slate-900 truncate max-w-sm" title={sessionA.fileName}>
+              <h4 className="text-sm font-bold text-slate-100 truncate max-w-sm" title={sessionA.fileName}>
                 {sessionA.fileName}
               </h4>
-              <span className="text-[10px] text-slate-400 font-mono">DATUM: {sessionA.date}</span>
+              <span className="text-[10px] text-slate-500 font-mono">DATUM: {sessionA.date}</span>
             </div>
           </div>
 
-          <div className="bg-slate-50 border border-slate-200 rounded p-4 space-y-3.5 font-mono">
+          <div className="bg-slate-800/40 border border-slate-700/50 rounded p-4 space-y-3.5 font-mono">
             {/* Metric 1: timing drift */}
             <div>
-              <div className="flex justify-between text-[10px] text-slate-400 font-bold uppercase">
+              <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase">
                 <span>Mittlere Drift</span>
-                <span className="text-slate-900">{sessionA.avgDriftMs.toFixed(2)} ms</span>
+                <span className="text-slate-100">{sessionA.avgDriftMs.toFixed(2)} ms</span>
               </div>
-              <div className="w-full bg-slate-200 h-2 rounded-full mt-1.5 overflow-hidden">
+              <div className="w-full bg-slate-700 h-2 rounded-full mt-1.5 overflow-hidden">
                 <div 
                   className={`h-full rounded-full ${sessionA.avgDriftMs < 9 ? 'bg-emerald-500' : sessionA.avgDriftMs > 30 ? 'bg-rose-500' : 'bg-blue-500'}`}
                   style={{ width: `${Math.min(100, (sessionA.avgDriftMs / 45) * 100)}%` }}
@@ -151,27 +151,27 @@ export const SessionComparison: React.FC<SessionComparisonProps> = ({ sessionA, 
             </div>
 
             {/* Other stats list */}
-            <div className="divide-y divide-slate-200 text-xs">
-              <div className="flex justify-between py-2 text-slate-650">
+            <div className="divide-y divide-slate-700/50 text-xs">
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>Tempo (Echt/Klick):</span>
-                <span className="text-slate-900 font-bold">{sessionA.tempo.toFixed(1)} BPM</span>
+                <span className="text-slate-100 font-bold">{sessionA.tempo.toFixed(1)} BPM</span>
               </div>
-              <div className="flex justify-between py-2 text-slate-650">
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>Midi-Noten gesamt:</span>
-                <span className="text-slate-900 font-bold">{sessionA.notesCount} Events</span>
+                <span className="text-slate-100 font-bold">{sessionA.notesCount} Events</span>
               </div>
-              <span className="block h-px bg-slate-200 my-1"></span>
-              <div className="flex justify-between py-2 text-slate-650">
+              <span className="block h-px bg-slate-600 my-1"></span>
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>Swingfaktor (16tel):</span>
-                <span className="text-blue-600 font-bold">{sessionA.swingFactor16th.toFixed(1)}%</span>
+                <span className="text-blue-400 font-bold">{sessionA.swingFactor16th.toFixed(1)}%</span>
               </div>
-              <div className="flex justify-between py-2 text-slate-650">
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>ø Anschlagsdynamik:</span>
-                <span className="text-slate-900 font-bold">{sessionA.avgVelocity} (0-127)</span>
+                <span className="text-slate-100 font-bold">{sessionA.avgVelocity} (0-127)</span>
               </div>
-              <div className="flex justify-between py-2 text-slate-650">
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>Stil-Kategorie:</span>
-                <span className="text-slate-900 font-semibold">{sessionA.styleCategory || 'N/A'}</span>
+                <span className="text-slate-100 font-semibold">{sessionA.styleCategory || 'N/A'}</span>
               </div>
             </div>
           </div>
@@ -182,21 +182,21 @@ export const SessionComparison: React.FC<SessionComparisonProps> = ({ sessionA, 
           <div className="flex items-center gap-2">
             <span className="w-5 h-5 bg-blue-600 text-white font-mono text-xs font-bold flex items-center justify-center rounded-full">B</span>
             <div>
-              <h4 className="text-sm font-bold text-slate-900 truncate max-w-sm" title={sessionB.fileName}>
+              <h4 className="text-sm font-bold text-slate-100 truncate max-w-sm" title={sessionB.fileName}>
                 {sessionB.fileName}
               </h4>
               <span className="text-[10px] text-slate-400 font-mono">DATUM: {sessionB.date}</span>
             </div>
           </div>
 
-          <div className="bg-slate-50 border border-slate-200 rounded p-4 space-y-3.5 font-mono">
+          <div className="bg-slate-800/40 border border-slate-700/50 rounded p-4 space-y-3.5 font-mono">
             {/* Metric 1: timing drift */}
             <div>
-              <div className="flex justify-between text-[10px] text-slate-400 font-bold uppercase">
+              <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase">
                 <span>Mittlere Drift</span>
-                <span className="text-blue-600">{sessionB.avgDriftMs.toFixed(2)} ms</span>
+                <span className="text-blue-400">{sessionB.avgDriftMs.toFixed(2)} ms</span>
               </div>
-              <div className="w-full bg-slate-200 h-2 rounded-full mt-1.5 overflow-hidden">
+              <div className="w-full bg-slate-700 h-2 rounded-full mt-1.5 overflow-hidden">
                 <div 
                   className={`h-full rounded-full ${sessionB.avgDriftMs < 9 ? 'bg-emerald-500' : sessionB.avgDriftMs > 30 ? 'bg-rose-500' : 'bg-blue-600'}`}
                   style={{ width: `${Math.min(100, (sessionB.avgDriftMs / 45) * 100)}%` }}
@@ -210,26 +210,26 @@ export const SessionComparison: React.FC<SessionComparisonProps> = ({ sessionA, 
 
             {/* Other stats list */}
             <div className="divide-y divide-slate-200 text-xs">
-              <div className="flex justify-between py-2 text-slate-650">
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>Tempo (Echt/Klick):</span>
-                <span className="text-slate-900 font-bold">{sessionB.tempo.toFixed(1)} BPM</span>
+                <span className="text-slate-100 font-bold">{sessionB.tempo.toFixed(1)} BPM</span>
               </div>
-              <div className="flex justify-between py-2 text-slate-650">
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>Midi-Noten gesamt:</span>
-                <span className="text-slate-900 font-bold">{sessionB.notesCount} Events</span>
+                <span className="text-slate-100 font-bold">{sessionB.notesCount} Events</span>
               </div>
-              <span className="block h-px bg-slate-200 my-1"></span>
-              <div className="flex justify-between py-2 text-slate-650">
+              <span className="block h-px bg-slate-600 my-1"></span>
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>Swingfaktor (16tel):</span>
-                <span className="text-blue-600 font-bold">{sessionB.swingFactor16th.toFixed(1)}%</span>
+                <span className="text-blue-400 font-bold">{sessionB.swingFactor16th.toFixed(1)}%</span>
               </div>
-              <div className="flex justify-between py-2 text-slate-650">
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>ø Anschlagsdynamik:</span>
-                <span className="text-slate-900 font-bold">{sessionB.avgVelocity} (0-127)</span>
+                <span className="text-slate-100 font-bold">{sessionB.avgVelocity} (0-127)</span>
               </div>
-              <div className="flex justify-between py-2 text-slate-650">
+              <div className="flex justify-between py-2 text-slate-400">
                 <span>Stil-Kategorie:</span>
-                <span className="text-slate-900 font-semibold">{sessionB.styleCategory || 'N/A'}</span>
+                <span className="text-slate-100 font-semibold">{sessionB.styleCategory || 'N/A'}</span>
               </div>
             </div>
           </div>

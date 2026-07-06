@@ -5,8 +5,12 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+FROM python:3.12-alpine
+RUN apk add --no-cache curl
+WORKDIR /app
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/*.py .
+COPY --from=builder /app/dist /app/static
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]

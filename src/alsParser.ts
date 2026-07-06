@@ -5,6 +5,7 @@
 
 import pako from 'pako';
 import { Midi } from '@tonejs/midi';
+import JSZip from 'jszip';
 import { MidiNote, AlsFileStats } from './types';
 
 // Hilfsmittel zum Übersetzen von MIDI-Key in Notennamen
@@ -416,7 +417,7 @@ export async function parseAudioPerformanceFile(file: File): Promise<AlsFileStat
   // 4. In MIDI-Notendaten übersetzen (bei 120BPM nominal)
   // Das Spiel wird umgerechnet in Beats: beat = seconds * 2.0 (da bei 120BPM ein Beat genau 0.5s dauert)
   const pentatonic = [60, 62, 64, 67, 69, 72, 74, 76, 79, 81];
-  const maxEnergy = Math.max(...onsetEnergies, 0.001);
+  const maxEnergy = onsetEnergies.reduce((a, v) => Math.max(a, v), 0.001);
   
   const notes: MidiNote[] = onsetTimes.map((t, idx) => {
     const normEnergy = onsetEnergies[idx] / maxEnergy;
@@ -533,6 +534,97 @@ export function parseAudioFallback(file: File): AlsFileStats {
 }
 
 /**
+ * Extrahiert MIDI-Dateien aus einem GarageBand .band-Archiv (Zip) und
+ * führt alle Noten zu einer Session zusammen.
+ */
+async function parseBandFile(file: File): Promise<AlsFileStats> {
+  const buffer = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(buffer);
+  const midiFiles: { name: string; data: ArrayBuffer }[] = [];
+
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (path.toLowerCase().endsWith('.mid') && !entry.dir) {
+      const data = await entry.async('arraybuffer');
+      midiFiles.push({ name: path, data });
+    }
+  }
+
+  if (midiFiles.length === 0) {
+    throw new Error(`Keine MIDI-Dateien in '${file.name}' gefunden.`);
+  }
+
+  const rawNotes: { midi: number; time: number; duration: number; velocity: number; trackName: string }[] = [];
+  let totalTempo = 0;
+  let tempoCount = 0;
+
+  for (const mf of midiFiles) {
+    try {
+      const midiObj = new Midi(mf.data);
+      const t = midiObj.header.tempos[0]?.bpm || 120;
+      if (!isNaN(t) && t > 1) {
+        totalTempo += t;
+        tempoCount++;
+      }
+
+      for (const track of midiObj.tracks) {
+        const trackName = track.name || mf.name;
+        for (const note of track.notes) {
+          rawNotes.push({
+            midi: note.midi,
+            time: note.time,
+            duration: note.duration,
+            velocity: note.velocity,
+            trackName: trackName,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn(`MIDI in .band uebersprungen (${mf.name}):`, err);
+    }
+  }
+
+  if (rawNotes.length === 0) {
+    throw new Error(`Keine Noten in '${file.name}' gefunden.`);
+  }
+
+  rawNotes.sort((a, b) => a.time - b.time);
+  const avgTempo = tempoCount > 0 ? totalTempo / tempoCount : 120;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+
+  const notes: MidiNote[] = rawNotes.map((rn, i) => ({
+    id: `band-${i}`,
+    key: rn.midi,
+    noteName: getNoteName(rn.midi),
+    time: rn.time,
+    duration: rn.duration,
+    velocity: rn.velocity,
+    gridOffset: 0,
+    gridOffsetMs: 0,
+    nearestGrid: 0,
+    trackName: rn.trackName,
+  }));
+
+  return {
+    fileName: file.name,
+    date: now.toISOString().split('T')[0],
+    time: `${hh}:${mm}`,
+    weekday: now.getDay(),
+    tempo: avgTempo,
+    estimatedBpm: avgTempo,
+    notesCount: notes.length,
+    avgVelocity: notes.length > 0
+      ? Math.round(notes.reduce((s, n) => s + n.velocity, 0) / notes.length)
+      : 0,
+    avgDriftMs: 0,
+    swingFactor16th: 0,
+    estimatedKey: "C",
+    notes: notes,
+  };
+}
+
+/**
  * Entpackt eine gzip-komprimierte .als-Datei und liest deren XML-Struktur
  */
 export async function parseAlsFile(file: File): Promise<AlsFileStats> {
@@ -541,8 +633,13 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
 
   const isAudio = ['mp3', 'wav', 'm4a', 'caf', 'ogg', 'aiff'].includes(ext);
   const isGarageBand = ext === 'band' || fileNameLower.includes('.band');
+  const isZip = ext === 'zip';
 
-  if (isAudio || isGarageBand) {
+  if (isGarageBand || isZip) {
+    return parseBandFile(file);
+  }
+
+  if (isAudio) {
     try {
       return await parseAudioPerformanceFile(file);
     } catch (err) {
@@ -750,14 +847,12 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
         }
 
         const notes: MidiNote[] = [];
-        const MAX_PARSE_NOTES = 8000;
         let noteIndexCounter = 0;
-        let parseAborted = false;
 
         // 1. Hierarchisches Parsing über MidiSpuren, um Arrangements-Offsets und Spur-Eigenschaften exakt zu erfassen
         const tracks = xmlDoc.getElementsByTagName("MidiTrack");
         
-        for (let t = 0; t < tracks.length && !parseAborted; t++) {
+        for (let t = 0; t < tracks.length; t++) {
           const trackEl = tracks[t];
           
           let trackName = "MIDI Track";
@@ -885,10 +980,6 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
               // Alle Notenevets in diesem KeyTrack auflisten
               const midiNotes = keyTrackEl.getElementsByTagName("MidiNoteEvent");
               for (let n = 0; n < midiNotes.length; n++) {
-                if (noteIndexCounter >= MAX_PARSE_NOTES) {
-                  parseAborted = true;
-                  break;
-                }
                 if (n > 0 && n % 500 === 0) {
                   await new Promise(r => setTimeout(r, 0));
                 }
@@ -1005,7 +1096,7 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
             }
           }
 
-          for (let fi = 0; fi < notesArray.length && noteIndexCounter < MAX_PARSE_NOTES; fi++) {
+          for (let fi = 0; fi < notesArray.length; fi++) {
             if (fi > 0 && fi % 500 === 0) {
               await new Promise(r => setTimeout(r, 0));
             }

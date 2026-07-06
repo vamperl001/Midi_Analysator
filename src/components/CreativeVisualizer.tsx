@@ -94,7 +94,7 @@ export const CreativeVisualizer: React.FC<CreativeVisualizerProps> = ({
   useEffect(() => {
     if (!activeFile || !activeFile.notes || activeFile.notes.length === 0) return;
     const drifts = activeFile.notes.map(n => Math.abs(n.gridOffsetMs));
-    const maxDrift = Math.max(...drifts);
+    const maxDrift = drifts.reduce((a, d) => Math.max(a, d), 0);
     const avg = drifts.reduce((s, d) => s + d, 0) / drifts.length;
     const variance = drifts.reduce((s, d) => s + Math.pow(d - avg, 2), 0) / drifts.length;
     const stdDev = Math.sqrt(variance);
@@ -1149,8 +1149,8 @@ export const CreativeVisualizer: React.FC<CreativeVisualizerProps> = ({
                 if (bpms.length === 0) {
                   return <div className="text-slate-500 text-xs font-mono text-center m-auto">Warte auf Signal-Input...</div>;
                 }
-                const minB = Math.max(50, Math.min(...bpms) - 4);
-                const maxB = Math.min(200, Math.max(...bpms) + 4);
+                const minB = Math.max(50, bpms.reduce((a, b) => Math.min(a, b), Infinity) - 4);
+                const maxB = Math.min(200, bpms.reduce((a, b) => Math.max(a, b), -Infinity) + 4);
                 const diffB = maxB - minB || 10;
                 
                 const w = 450;

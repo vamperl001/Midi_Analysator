@@ -14,6 +14,7 @@ import {
   ReferenceLine
 } from 'recharts';
 import { AlsFileStats } from '../types';
+import { chart as chartTheme, accent, bg } from '../theme';
 import { TrendingUp, Award, Zap, Activity, Layers, Sliders, Sparkles } from 'lucide-react';
 import { CustomResponsiveContainer } from './CustomResponsiveContainer';
 
@@ -54,8 +55,8 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
     if (chartData.length === 0) return { min: 0, max: 0, average: 0, improvement: 0 };
     
     const drifts = chartData.map(d => d.drift);
-    const min = Math.min(...drifts);
-    const max = Math.max(...drifts);
+    const min = drifts.reduce((a, b) => Math.min(a, b), drifts[0] ?? 0);
+    const max = drifts.reduce((a, b) => Math.max(a, b), drifts[0] ?? 0);
     const average = drifts.reduce((sum, d) => sum + d, 0) / drifts.length;
     
     // Improvement calculation comparing first 15% and last 15% of sessions
@@ -121,11 +122,11 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
       description: "Hier siehst du, wie sich deine mittlere Timing-Ungenauigkeit über das Halbjahr entwickelt. Ein sinkender Drift-Wert signalisiert höhere Spiel-Präzision!",
       dataKey: "drift",
       unit: "ms",
-      color: "#0f172a",
+      color: bg.darker,
       label: "Timing Drift",
       referenceLines: [
-        { y: 9, stroke: "#10b981", label: "Gold-Standard (<9ms)" },
-        { y: 30, stroke: "#f43f5e", label: "Warnschwelle (>30ms)" }
+        { y: 9, stroke: accent.emerald, label: "Gold-Standard (<9ms)" },
+        { y: 30, stroke: accent.rose, label: "Warnschwelle (>30ms)" }
       ]
     },
     polyphony: {
@@ -133,11 +134,11 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
       description: "Zeigt das Voranschreiten von einfachen Melodien (1-2 Tasten) hin zu komplexen, mehrstimmigen Akkorden (3-4 Tasten gleichzeitig). Musikalischer Reifegrad messbar gemacht!",
       dataKey: "polyphony",
       unit: " Noten",
-      color: "#4f46e5",
+      color: accent.indigoDark,
       label: "Ø Polyphonie",
       referenceLines: [
-        { y: 1.2, stroke: "#64748b", label: "Einfache Melodie" },
-        { y: 2.8, stroke: "#8b5cf6", label: "Komplexe Akkorde" }
+        { y: 1.2, stroke: chartTheme.referenceLine, label: "Einfache Melodie" },
+        { y: 2.8, stroke: accent.violet, label: "Komplexe Akkorde" }
       ]
     },
     velocitySpread: {
@@ -145,11 +146,11 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
       description: "Ein Anfänger drückt alle Tasten gleich fest (niedrige Varianz). Ein Fortgeschrittener differenziert sensibel zwischen leiser Begleitung links und lauter Melodie rechts (hohe Dynamik-Spreizung)!",
       dataKey: "velocitySpread",
       unit: " SD",
-      color: "#ec4899",
+      color: accent.pink,
       label: "Touch Spread",
       referenceLines: [
-        { y: 6.0, stroke: "#f43f5e", label: "Eintöniger Anschlag" },
-        { y: 14.0, stroke: "#10b981", label: "Feinfühliges Piano" }
+        { y: 6.0, stroke: accent.rose, label: "Eintöniger Anschlag" },
+        { y: 14.0, stroke: accent.emerald, label: "Feinfühliges Piano" }
       ]
     },
     pedalAccuracy: {
@@ -157,11 +158,11 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
       description: "Klavierspielen lernt man auch mit dem Fuß. Analysiert die zeitliche Präzision beim Lösen und erneuten Treten des Pedals exakt zum Akkordwechsel (Legato-Pedalierung).",
       dataKey: "pedalAccuracy",
       unit: "%",
-      color: "#06b6d4",
+      color: accent.cyan,
       label: "Pedal Präzision",
       referenceLines: [
-        { y: 60, stroke: "#f43f5e", label: "Sloppy (Matschig)" },
-        { y: 88, stroke: "#10b981", label: "Hervorragendes Legato" }
+        { y: 60, stroke: accent.rose, label: "Sloppy (Matschig)" },
+        { y: 88, stroke: accent.emerald, label: "Hervorragendes Legato" }
       ]
     }
   };
@@ -169,14 +170,14 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
   const currentConfig = metricConfigs[activeMetric];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm flex flex-col" id="analyzer-progression-chart-card">
+    <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 flex flex-col" id="analyzer-progression-chart-card">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <div>
-          <h3 className="text-xs font-bold tracking-widest text-slate-800 uppercase font-mono flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-slate-900" />
+          <h3 className="text-xs font-bold tracking-widest text-slate-100 uppercase font-mono flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-slate-100" />
             {currentConfig.title}
           </h3>
-          <p className="text-xs text-slate-500 mt-1 italic font-serif">
+          <p className="text-xs text-slate-400 mt-1 italic font-serif">
             {currentConfig.description}
           </p>
         </div>
@@ -185,25 +186,25 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
         {chartData.length >= 3 && (
           <div className="flex flex-wrap gap-2.5">
             {activeMetric === "drift" && stats.improvement > 0 && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-50 border border-emerald-100 text-emerald-800 text-[10px] font-mono font-bold uppercase tracking-wider">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-900/30 border border-emerald-800/50 text-emerald-300 text-[10px] font-mono font-bold uppercase tracking-wider">
                 <Award className="w-3.5 h-3.5 text-emerald-600 animate-bounce" />
                 Timing: +{stats.improvement.toFixed(1)} ms genauer!
               </div>
             )}
             {activeMetric === "polyphony" && stats.polyphonyGrowth > 0 && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-indigo-50 border border-indigo-100 text-indigo-800 text-[10px] font-mono font-bold uppercase tracking-wider">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-indigo-900/30 border border-indigo-800/50 text-indigo-300 text-[10px] font-mono font-bold uppercase tracking-wider">
                 <Award className="w-3.5 h-3.5 text-indigo-600 animate-bounce" />
                 Harmonie: +{stats.polyphonyGrowth.toFixed(2)} Noten dichter!
               </div>
             )}
             {activeMetric === "velocitySpread" && stats.velocitySpreadGrowth > 0 && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-pink-50 border border-pink-100 text-pink-800 text-[10px] font-mono font-bold uppercase tracking-wider">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-pink-900/30 border border-pink-800/50 text-pink-300 text-[10px] font-mono font-bold uppercase tracking-wider">
                 <Award className="w-3.5 h-3.5 text-pink-600 animate-bounce" />
                 Gefühl: +{stats.velocitySpreadGrowth.toFixed(1)} SD feinfühliger!
               </div>
             )}
             {activeMetric === "pedalAccuracy" && stats.pedalImprovement > 0 && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-cyan-50 border border-cyan-100 text-cyan-800 text-[10px] font-mono font-bold uppercase tracking-wider">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-cyan-900/30 border border-cyan-800/50 text-cyan-300 text-[10px] font-mono font-bold uppercase tracking-wider">
                 <Award className="w-3.5 h-3.5 text-cyan-600 animate-bounce" />
                 Beinarbeit: +{stats.pedalImprovement.toFixed(0)}% präziser!
               </div>
@@ -216,13 +217,13 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
       </div>
 
       {/* Sub-Tab navigation buttons */}
-      <div className="flex flex-wrap gap-2 mb-4 pb-2 border-b border-slate-100">
+      <div className="flex flex-wrap gap-2 mb-4 pb-2 border-b border-slate-700/50">
         <button
           onClick={() => setActiveMetric("drift")}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider transition-all duration-200 border ${
             activeMetric === "drift"
               ? "bg-slate-900 border-slate-900 text-white shadow-sm"
-              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+              : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:bg-slate-700/50"
           }`}
         >
           <Activity className="w-3.5 h-3.5" />
@@ -234,7 +235,7 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider transition-all duration-200 border ${
             activeMetric === "polyphony"
               ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
-              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+              : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:bg-slate-700/50"
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
@@ -246,7 +247,7 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider transition-all duration-200 border ${
             activeMetric === "velocitySpread"
               ? "bg-pink-600 border-pink-600 text-white shadow-sm"
-              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+              : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:bg-slate-700/50"
           }`}
         >
           <Sliders className="w-3.5 h-3.5" />
@@ -258,7 +259,7 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider transition-all duration-200 border ${
             activeMetric === "pedalAccuracy"
               ? "bg-cyan-600 border-cyan-600 text-white shadow-sm"
-              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+              : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:bg-slate-700/50"
           }`}
         >
           <Sparkles className="w-3.5 h-3.5" />
@@ -268,7 +269,7 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-stretch">
         {/* Left Side: interactive recharts line plot */}
-        <div className="md:col-span-3 h-64 bg-slate-50/50 rounded border border-slate-200 p-2 relative flex flex-col justify-end">
+        <div className="md:col-span-3 h-64 bg-slate-800/30 rounded border border-slate-700/50 p-2 relative flex flex-col justify-end">
           <CustomResponsiveContainer>
             {(width, height) => (
               <LineChart
@@ -277,16 +278,16 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
                 data={chartData}
                 margin={{ top: 15, right: 15, left: -20, bottom: 5 }}
               >
-                <CartesianGrid stroke="#f1f5f9" strokeDasharray="3 3" vertical={false} />
+                <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
                 <XAxis 
                   dataKey="displayDate" 
-                  tick={{ fill: '#64748b', fontSize: 9, fontFamily: 'monospace' }}
-                  axisLine={{ stroke: '#e2e8f0' }}
+                  tick={{ fill: chartTheme.axisLabel, fontSize: 9, fontFamily: 'monospace' }}
+                  axisLine={{ stroke: chartTheme.axis }}
                   tickLine={false}
                 />
                 <YAxis 
-                  tick={{ fill: '#64748b', fontSize: 9, fontFamily: 'monospace' }}
-                  axisLine={{ stroke: '#e2e8f0' }}
+                  tick={{ fill: chartTheme.axisLabel, fontSize: 9, fontFamily: 'monospace' }}
+                  axisLine={{ stroke: chartTheme.axis }}
                   tickLine={false}
                   domain={[0, 'auto']}
                   unit={activeMetric === "drift" ? "ms" : activeMetric === "pedalAccuracy" ? "%" : ""}
@@ -372,23 +373,23 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
 
         {/* Right Side: Educational Progression Summary Cards */}
         <div className="flex flex-col justify-between gap-3 font-mono text-xs">
-          <div className="bg-slate-50 border border-slate-200 rounded p-4 flex-1 flex flex-col justify-between">
+          <div className="bg-slate-800/40 border border-slate-700/50 rounded p-4 flex-1 flex flex-col justify-between">
             <div>
               <span className="text-[9px] text-slate-400 font-bold block uppercase tracking-wider">HALBJAHRES-LERNTREND</span>
-              <span className="text-slate-800 font-bold block mt-1">
+              <span className="text-slate-100 font-bold block mt-1">
                 {activeMetric === "drift" && "Präzisions-Gewinn"}
                 {activeMetric === "polyphony" && "Stimmführungs-Komplexität"}
                 {activeMetric === "velocitySpread" && "Anschlags-Feingefühl"}
                 {activeMetric === "pedalAccuracy" && "Sustain-Perfektion"}
               </span>
-              <p className="text-[10px] text-slate-500 mt-1 italic font-serif leading-relaxed">
+              <p className="text-[10px] text-slate-400 mt-1 italic font-serif leading-relaxed">
                 {activeMetric === "drift" && `Durchschnittlich weichst du im Verlauf der 6 Monate um ${stats.improvement > 0 ? stats.improvement.toFixed(1) : "0"} ms weniger vom mathematischen Raster ab.`}
                 {activeMetric === "polyphony" && `Entwicklung von einfachen Einstimmigkeiten hin zu satten Akkorden. Dein harmonischer Fortschritt liegt bei +${stats.polyphonyGrowth > 0 ? stats.polyphonyGrowth.toFixed(2) : "0"} Tasten.`}
                 {activeMetric === "velocitySpread" && `Dank des Trainings spielst du Noten nicht mehr starr mit gleichem Druck, sondern differenzierst die Dynamik um +${stats.velocitySpreadGrowth > 0 ? stats.velocitySpreadGrowth.toFixed(1) : "0"} dB Spreizung.`}
                 {activeMetric === "pedalAccuracy" && `Dein Fuß koordiniert sich über das Halbjahr hinweg um +${stats.pedalImprovement > 0 ? stats.pedalImprovement.toFixed(0) : "0"}% genauer mit den Fingern.`}
               </p>
             </div>
-            <div className="border-t border-slate-200 pt-2 mt-2 text-[10px] text-indigo-700 font-bold flex items-center gap-1">
+            <div className="border-t border-slate-700/50 pt-2 mt-2 text-[10px] text-indigo-400 font-bold flex items-center gap-1">
               <span>🎯 Lernziel erreicht:</span>
               <span>
                 {activeMetric === "drift" && "Drift unter 15 ms"}
@@ -399,15 +400,15 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
             </div>
           </div>
 
-          <div className="bg-slate-50 border border-slate-200 rounded p-4 flex-1 flex flex-col justify-between">
+          <div className="bg-slate-800/40 border border-slate-700/50 rounded p-4 flex-1 flex flex-col justify-between">
             <div>
               <span className="text-[9px] text-slate-400 font-bold block uppercase tracking-wider">STATISTISCHER MITTELWERT</span>
-              <span className="text-slate-800 font-bold block mt-1">Schnitt aller Sessions</span>
-              <p className="text-[10px] text-slate-500 mt-1 italic font-serif leading-relaxed">
+              <span className="text-slate-100 font-bold block mt-1">Schnitt aller Sessions</span>
+              <p className="text-[10px] text-slate-400 mt-1 italic font-serif leading-relaxed">
                 Dein globaler Durchschnitt über alle eingespielten {chartData.length} Sitzungen hinweg.
               </p>
             </div>
-            <div className="border-t border-slate-200 pt-2 mt-2 text-[10px] text-slate-600 flex justify-between">
+            <div className="border-t border-slate-700/50 pt-2 mt-2 text-[10px] text-slate-400 flex justify-between">
               <span>Mittlerer Wert:</span>
               <span className="font-bold text-slate-800">
                 {activeMetric === "drift" && `${stats.average.toFixed(1)} ms`}

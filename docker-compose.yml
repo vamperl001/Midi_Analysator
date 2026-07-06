@@ -1,13 +1,15 @@
 services:
-  midi-analyzer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: midi_timing_analyzer
+  app:
+    build: .
+    container_name: midi_app
     ports:
       - "8090:80"
-    restart: always
+    env_file: .env
+    volumes:
+      - midi_data:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    env_file:
-      - .env
+    restart: always
+
+volumes:
+  midi_data:

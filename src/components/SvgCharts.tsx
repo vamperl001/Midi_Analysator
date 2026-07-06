@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { MidiNote, AlsFileStats } from '../types';
+import { chart as chartTheme, accent, text as textTheme, bg } from '../theme';
 import {
   AreaChart,
   Area,
@@ -116,7 +117,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
 
   const maxBinCount = useMemo(() => {
     const counts = histogramBins.map(b => b.count);
-    return counts.length > 0 ? Math.max(...counts, 1) : 1;
+    return counts.length > 0 ? counts.reduce((a, b) => Math.max(a, b), 1) : 1;
   }, [histogramBins]);
 
   // --- 4. DAILY TREND BERECHNEN ---
@@ -164,12 +165,12 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
   // Trenddimensionen für SVG definieren
   const trendMaxDrift = useMemo(() => {
     const vals = dailyTrend.map(d => Math.max(d.avgDrift, d.rollingDrift || 0));
-    return vals.length > 0 ? Math.max(...vals, 15) : 25;
+    return vals.length > 0 ? vals.reduce((a, b) => Math.max(a, b), 15) : 25;
   }, [dailyTrend]);
 
   const trendMinDrift = useMemo(() => {
     const vals = dailyTrend.map(d => Math.min(d.avgDrift, d.rollingDrift || 0));
-    return vals.length > 0 ? Math.max(0, Math.min(...vals, 5)) : 0;
+    return vals.length > 0 ? Math.max(0, vals.reduce((a, b) => Math.min(a, b), vals[0])) : 0;
   }, [dailyTrend]);
 
   // --- 5. SWING FACTOR DISTRIBUTION ---
@@ -186,7 +187,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
 
   const maxSwingCount = useMemo(() => {
     const counts = swingDistribution.map(s => s.count);
-    return counts.length > 0 ? Math.max(...counts, 1) : 1;
+    return counts.length > 0 ? counts.reduce((a, b) => Math.max(a, b), 1) : 1;
   }, [swingDistribution]);
 
   // --- 6. PIANO KEYS HEATMAP ---
@@ -200,7 +201,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
       }
     });
 
-    const maxCount = Math.max(...Object.values(counts), 1);
+    const maxCount = Math.max(Object.values(counts).reduce((a, b) => Math.max(a, b), 1), 1);
     
     return Object.entries(counts).map(([keyStr, cnt]) => {
       const key = parseInt(keyStr);
@@ -240,7 +241,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
     
     // Finde das maximale Timing der aktuellen Session(s) vor
     const times = allNotes.map(n => n.time);
-    const maxBeat = Math.max(...times, 1);
+    const maxBeat = times.length > 0 ? times.reduce((a, b) => Math.max(a, b), 1) : 1;
     const numBars = Math.ceil(maxBeat / 4);
     
     // Initialisiere die Takte von 1 bis numBars (Sicherung bei maximal 256 Takten für gute Chartdarstellung)
@@ -269,7 +270,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
   const noteDensityStats = useMemo(() => {
     if (noteDensityData.length === 0) return { max: 0, avg: 0, totalBars: 0 };
     const counts = noteDensityData.map(b => b.notesCount);
-    const max = Math.max(...counts);
+    const max = counts.length > 0 ? counts.reduce((a, b) => Math.max(a, b), 0) : 0;
     const sum = counts.reduce((acc, c) => acc + c, 0);
     const avg = sum / noteDensityData.length;
     return {
@@ -336,8 +337,8 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
     if (activeSteps.length === 0) return { min: 0, max: 0, dynamicDelta: 0, accentuation: "Homogen" };
     
     const vels = activeSteps.map(s => s.avgVelocity);
-    const min = Math.min(...vels);
-    const max = Math.max(...vels);
+    const min = vels.reduce((a, b) => Math.min(a, b), vels[0]);
+    const max = vels.reduce((a, b) => Math.max(a, b), vels[0]);
     const dynamicDelta = max - min;
     
     let accentuation = "Homogen";
@@ -381,12 +382,12 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
         {/* Die SVG Grafik */}
         <div className="relative flex-1 min-h-[220px] bg-slate-800/40 p-4 rounded border border-slate-700/50 flex flex-col justify-end">
           <svg className="w-full h-44 overflow-visible" viewBox="0 0 300 120" preserveAspectRatio="none">
-            {/* Grid Linien */}
-            <line x1="150" y1="0" x2="150" y2="110" stroke="#ef4444" strokeDasharray="3,2" strokeWidth="1" />
-            <line x1="50" y1="0" x2="50" y2="110" stroke="#e2e8f0" strokeWidth="0.5" />
-            <line x1="100" y1="0" x2="100" y2="110" stroke="#e2e8f0" strokeWidth="0.5" />
-            <line x1="200" y1="0" x2="200" y2="110" stroke="#e2e8f0" strokeWidth="0.5" />
-            <line x1="250" y1="0" x2="250" y2="110" stroke="#e2e8f0" strokeWidth="0.5" />
+              {/* Grid Linien */}
+              <line x1="150" y1="0" x2="150" y2="110" stroke={chartTheme.zeroLine} strokeDasharray="3,2" strokeWidth="1" />
+              <line x1="50" y1="0" x2="50" y2="110" stroke={chartTheme.axis} strokeWidth="0.5" />
+              <line x1="100" y1="0" x2="100" y2="110" stroke={chartTheme.axis} strokeWidth="0.5" />
+              <line x1="200" y1="0" x2="200" y2="110" stroke={chartTheme.axis} strokeWidth="0.5" />
+              <line x1="250" y1="0" x2="250" y2="110" stroke={chartTheme.axis} strokeWidth="0.5" />
 
             {/* Balken zeichnen */}
             {histogramBins.map((bin, idx) => {
@@ -396,11 +397,11 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
               
               // Farbcodierung: Clean Minimalism theme (blue und light/slate grey)
               const distanceToCenter = Math.abs(bin.mid);
-              let barColor = "#3b82f6"; // Minimal Blue for tight notes
+              let barColor: string = accent.blue; // Minimal Blue for tight notes
               if (distanceToCenter < 6) {
-                barColor = "#0f172a"; // Deep Indigo/Black for super on-grid timing
+                barColor = bg.dark; // Deep Indigo/Black for super on-grid timing
               } else if (distanceToCenter > 22) {
-                barColor = "#cbd5e1"; // Soft slate-gray for wide timing
+                barColor = textTheme.muted; // Soft slate-gray for wide timing
               }
 
               return (
@@ -419,7 +420,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
             })}
 
             {/* Nullstellenlinie Text */}
-            <text x="153" y="12" fill="#ef4444" fontSize="7" fontFamily="monospace" fontWeight="bold">Grid-Soll (0ms)</text>
+            <text x="153" y="12" fill={accent.red} fontSize="7" fontFamily="monospace" fontWeight="bold">Grid-Soll (0ms)</text>
           </svg>
           
           {/* X Achsenbeschriftung */}
@@ -434,19 +435,19 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
         <div className="grid grid-cols-3 gap-2 mt-4 text-center font-mono">
           <div className="bg-slate-800/40 p-2.5 rounded border border-slate-700/50">
             <div className="text-[9px] text-slate-400 uppercase tracking-wider">MEDIAN</div>
-            <div className={`text-xs font-bold ${Math.abs(stats.median) < 4 ? 'text-slate-800' : 'text-blue-600'}`}>
+            <div className={`text-xs font-bold ${Math.abs(stats.median) < 4 ? 'text-slate-100' : 'text-blue-400'}`}>
               {stats.median > 0 ? `+${stats.median.toFixed(1)}` : stats.median.toFixed(1)} <span className="text-[8px] font-light">ms</span>
             </div>
           </div>
           <div className="bg-slate-800/40 p-2.5 rounded border border-slate-700/50">
             <div className="text-[9px] text-slate-400 uppercase tracking-wider">Jitter (STD)</div>
-            <div className="text-xs font-bold text-slate-800">
+            <div className="text-xs font-bold text-slate-100">
               {stats.std.toFixed(1)} <span className="text-[8px] font-light">ms</span>
             </div>
           </div>
           <div className="bg-slate-800/40 p-2.5 rounded border border-slate-700/50">
             <div className="text-[9px] text-slate-400 uppercase tracking-wider">Early/Late</div>
-            <div className="text-[10px] font-bold text-slate-600 mt-0.5">
+            <div className="text-[10px] font-bold text-slate-300 mt-0.5">
               -{stats.earlyPercent}% | +{stats.latePercent}%
             </div>
           </div>
@@ -455,13 +456,13 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
         {/* Kurze Erklärung des Timings */}
         <div className="mt-4 text-xs text-slate-400 leading-snug flex-1 bg-slate-800/40 p-3 rounded border border-slate-700/50 font-mono">
           {Math.abs(stats.avg) < 3 && stats.std < 12 ? (
-            <span className="text-emerald-700">✔ Äußerst tightes Timing! Minimale Abweichung, maschinell präzise eingespielt.</span>
+            <span className="text-emerald-400">✔ Äußerst tightes Timing! Minimale Abweichung, maschinell präzise eingespielt.</span>
           ) : stats.median > 6 ? (
-            <span className="text-slate-700">⚡ Timing-Tendenzen laid-back (behind the beat). Ergibt einen entspannten, ziehenden Musikgroove.</span>
+            <span className="text-slate-300">⚡ Timing-Tendenzen laid-back (behind the beat). Ergibt einen entspannten, ziehenden Musikgroove.</span>
           ) : stats.median < -6 ? (
-            <span className="text-slate-700">⚡ Timing treibend (ahead of the beat). Erzeugt nervösen Drive für mehr Vorwärtsdrang.</span>
+            <span className="text-slate-300">⚡ Timing treibend (ahead of the beat). Erzeugt nervösen Drive für mehr Vorwärtsdrang.</span>
           ) : (
-            <span className="text-slate-600">Natürlicher rhythmischer Rhythmus mit organischen Schwankungen.</span>
+            <span className="text-slate-300">Natürlicher rhythmischer Rhythmus mit organischen Schwankungen.</span>
           )}
         </div>
       </div>
@@ -485,9 +486,9 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
           <div className="relative flex-1 min-h-[220px] bg-slate-800/40 p-4 rounded border border-slate-700/50 flex flex-col justify-end">
             <svg className="w-full h-44 overflow-visible" viewBox="0 0 300 120" preserveAspectRatio="none">
               {/* Grid Linien horizontal */}
-              <line x1="0" y1="30" x2="300" y2="30" stroke="#e2e8f0" strokeWidth="0.5" strokeDasharray="2,2" />
-              <line x1="0" y1="60" x2="300" y2="60" stroke="#e2e8f0" strokeWidth="0.5" strokeDasharray="2,2" />
-              <line x1="0" y1="90" x2="300" y2="90" stroke="#e2e8f0" strokeWidth="0.5" strokeDasharray="2,2" />
+              <line x1="0" y1="30" x2="300" y2="30" stroke={chartTheme.axis} strokeWidth="0.5" strokeDasharray="2,2" />
+              <line x1="0" y1="60" x2="300" y2="60" stroke={chartTheme.axis} strokeWidth="0.5" strokeDasharray="2,2" />
+              <line x1="0" y1="90" x2="300" y2="90" stroke={chartTheme.axis} strokeWidth="0.5" strokeDasharray="2,2" />
 
               {/* Verlauf 1: Drift (Schwarze schattierte Kurve) */}
               {(() => {
@@ -521,14 +522,14 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                     {/* Tägliche Knoten */}
                     {dailyTrend.length < 50 && dailyTrend.map((d, idx) => {
                       const coord = points[idx].split(",");
-                      return <circle key={idx} cx={coord[0]} cy={coord[1]} r="2" fill="#1e293b" opacity="0.4" />;
+                      return <circle key={idx} cx={coord[0]} cy={coord[1]} r="2" fill={textTheme.muted} opacity="0.4" />;
                     })}
 
                     {/* Glatte Trend-Linie */}
                     <polyline 
                       points={rollingPoints.join(" ")} 
                       fill="none" 
-                      stroke="#0f172a" 
+                      stroke={textTheme.bright} 
                       strokeWidth="2" 
                     />
                   </>
@@ -549,7 +550,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                   <polyline 
                     points={pointsSwing.join(" ")} 
                     fill="none" 
-                    stroke="#3b82f6" 
+                    stroke={accent.blue} 
                     strokeWidth="1.5" 
                     strokeDasharray="4,2" 
                   />
@@ -559,8 +560,8 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
               {/* Gradients definieren */}
               <defs>
                 <linearGradient id="slateGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#1e293b" />
-                  <stop offset="100%" stopColor="#1e293b" stopOpacity="0" />
+                  <stop offset="0%" stopColor={textTheme.bright} />
+                  <stop offset="100%" stopColor={textTheme.bright} stopOpacity="0" />
                 </linearGradient>
               </defs>
             </svg>
@@ -593,7 +594,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
               </div>
             </div>
           </div>
-          <p className="text-[10px] text-slate-500 max-w-[120px] sm:text-right leading-tight">
+          <p className="text-[10px] text-slate-400 max-w-[120px] sm:text-right leading-tight">
             Verschiebt sich im Juni zu laid-back Lo-Fi.
           </p>
         </div>
@@ -657,24 +658,24 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                 
                 <div className="flex justify-between items-center py-1 border-b border-slate-700/30">
                   <span className="text-slate-400">Events:</span>
-                  <span className="text-slate-800 font-medium">{selectedNoteInfo.count}</span>
+                  <span className="text-slate-100 font-medium">{selectedNoteInfo.count}</span>
                 </div>
                 
                 <div className="flex justify-between items-center py-1 border-b border-slate-700/30">
                   <span className="text-slate-400">Trend:</span>
-                  <span className={`font-medium ${parseFloat(selectedNoteInfo.avgDriftMs) > 0 ? 'text-blue-600' : 'text-slate-800'}`}>
+                  <span className={`font-medium ${parseFloat(selectedNoteInfo.avgDriftMs) > 0 ? 'text-blue-400' : 'text-slate-100'}`}>
                     {parseFloat(selectedNoteInfo.avgDriftMs) > 0 ? 'Laid-back' : 'Ahead'} ({selectedNoteInfo.avgDriftMs}ms)
                   </span>
                 </div>
 
                 <div className="flex justify-between items-center py-1 border-b border-slate-700/30">
                   <span className="text-slate-400">Fehler ø:</span>
-                  <span className="text-slate-800 font-medium">{selectedNoteInfo.absDriftMs} ms</span>
+                  <span className="text-slate-100 font-medium">{selectedNoteInfo.absDriftMs} ms</span>
                 </div>
 
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400">Anschlag:</span>
-                  <span className="text-blue-600 font-medium">{selectedNoteInfo.avgVelocity}</span>
+                  <span className="text-blue-400 font-medium">{selectedNoteInfo.avgVelocity}</span>
                 </div>
               </div>
             ) : (
@@ -687,7 +688,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
             {selectedNoteInfo && (
               <button 
                 onClick={() => setSelectedNoteKey(null)}
-                className="mt-3 text-[9px] text-center bg-slate-100 hover:bg-slate-200 text-slate-700 py-1 px-2 rounded border border-slate-200 transition-colors cursor-pointer font-sans"
+                className="mt-3 text-[9px] text-center bg-slate-700 hover:bg-slate-600 text-slate-200 py-1 px-2 rounded border border-slate-600 transition-colors cursor-pointer font-sans"
               >
                 Zurücksetzen
               </button>
@@ -696,7 +697,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
 
         </div>
 
-        <div className="mt-4 p-2.5 bg-amber-50 border border-amber-200 rounded text-amber-800 text-[10px] font-mono flex items-start gap-2">
+        <div className="mt-4 p-2.5 bg-slate-800/60 border border-slate-600 rounded text-slate-300 text-[10px] font-mono flex items-start gap-2">
           <span>💡</span>
           <span>Drums (MIDI 36-50) weisen meist eine markante Verzögerung auf (Snares/Claps für laid-back Groove).</span>
         </div>
@@ -710,9 +711,9 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
         {/* A. Notendichte Liniendiagramm */}
         <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 flex flex-col" id="chart-note-density">
           <div className="mb-4">
-            <h3 className="text-xs font-bold tracking-widest text-slate-800 uppercase font-mono flex items-center gap-1.5">
-              <Activity className="w-4 h-4 text-slate-850" />
-              📈 Musikalische Intensität (Notendichte)
+              <h3 className="text-xs font-bold tracking-widest text-slate-100 uppercase font-mono flex items-center gap-1.5">
+               <Activity className="w-4 h-4 text-slate-100" />
+               📈 Musikalische Intensität (Notendichte)
             </h3>
             <p className="text-xs text-slate-400 mt-1 italic font-serif">
               Anzahl der gespielten Noten pro Takt über die Zeitachse, um Spannungsverläufe und dramatische Höhepunkte der Session zu verfolgen.
@@ -736,21 +737,21 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                     >
                       <defs>
                         <linearGradient id="densityGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#1e293b" stopOpacity={0.25} />
-                          <stop offset="95%" stopColor="#1e293b" stopOpacity={0.0} />
+                          <stop offset="5%" stopColor={textTheme.bright} stopOpacity={0.2} />
+                          <stop offset="95%" stopColor={textTheme.bright} stopOpacity={0.0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                      <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
                       <XAxis 
                         dataKey="barNum" 
-                        tick={{ fill: '#64748b', fontSize: 9, fontFamily: 'monospace' }}
-                        axisLine={{ stroke: '#cbd5e1' }}
+                        tick={{ fill: '#94a3b8', fontSize: 9, fontFamily: 'monospace' }}
+                        axisLine={{ stroke: '#475569' }}
                         tickLine={false}
-                        label={{ value: 'Takt', position: 'insideBottomRight', offset: -5, fill: '#94a3b8', fontSize: 8, fontFamily: 'monospace' }}
+                        label={{ value: 'Takt', position: 'insideBottomRight', offset: -5, fill: '#64748b', fontSize: 8, fontFamily: 'monospace' }}
                       />
                       <YAxis 
-                        tick={{ fill: '#64748b', fontSize: 9, fontFamily: 'monospace' }}
-                        axisLine={{ stroke: '#cbd5e1' }}
+                        tick={{ fill: '#94a3b8', fontSize: 9, fontFamily: 'monospace' }}
+                        axisLine={{ stroke: '#475569' }}
                         tickLine={false}
                         allowDecimals={false}
                       />
@@ -779,11 +780,11 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                       <Area
                         type="monotone"
                         dataKey="notesCount"
-                        stroke="#0f172a"
+                        stroke={textTheme.bright}
                         strokeWidth={2}
                         fillOpacity={1}
                         fill="url(#densityGrad)"
-                        activeDot={{ r: 5, fill: '#3b82f6', stroke: '#ffffff', strokeWidth: 1.5 }}
+                        activeDot={{ r: 5, fill: chartTheme.activeDot, stroke: bg.dark, strokeWidth: 1.5 }}
                       />
                     </AreaChart>
                   )}
@@ -794,15 +795,15 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
               <div className="grid grid-cols-3 gap-2 mt-4 text-center font-mono text-[10px]">
                 <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
                   <div className="text-[8px] text-slate-400 uppercase font-black">Spitzen-Dichte</div>
-                  <div className="text-[11px] font-bold text-slate-800 mt-0.5">{noteDensityStats.max} <span className="text-[8px] font-normal text-slate-400">Noten</span></div>
+                  <div className="text-[11px] font-bold text-slate-100 mt-0.5">{noteDensityStats.max} <span className="text-[8px] font-normal text-slate-400">Noten</span></div>
                 </div>
                 <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
                   <div className="text-[8px] text-slate-400 uppercase font-black">ø Noten/Takt</div>
-                  <div className="text-[11px] font-bold text-slate-800 mt-0.5">{noteDensityStats.avg}</div>
+                  <div className="text-[11px] font-bold text-slate-100 mt-0.5">{noteDensityStats.avg}</div>
                 </div>
                 <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
                   <div className="text-[8px] text-slate-400 uppercase font-black">Aufnahmelänge</div>
-                  <div className="text-[11px] font-bold text-slate-800 mt-0.5">{noteDensityStats.totalBars} <span className="text-[8px] font-normal text-slate-400">Takte</span></div>
+                  <div className="text-[11px] font-bold text-slate-100 mt-0.5">{noteDensityStats.totalBars} <span className="text-[8px] font-normal text-slate-400">Takte</span></div>
                 </div>
               </div>
             </div>
@@ -813,8 +814,8 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
         <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 flex flex-col" id="chart-velocity-heatmap">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div>
-              <h3 className="text-xs font-bold tracking-widest text-slate-800 uppercase font-mono flex items-center gap-1.5">
-                <Volume2 className="w-4 h-4 text-slate-850" />
+              <h3 className="text-xs font-bold tracking-widest text-slate-100 uppercase font-mono flex items-center gap-1.5">
+                <Volume2 className="w-4 h-4 text-slate-100" />
                 🥁 {heatmapMode === 'velocity' ? 'Anschlagsstärke' : 'Timing-Drift'} (16tel-Grid Heatmap)
               </h3>
               <p className="text-xs text-slate-400 mt-1 italic font-serif">
@@ -825,16 +826,16 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
             </div>
 
             {/* Toggle Switch */}
-            <div className="flex bg-slate-100 p-1 rounded border border-slate-250 font-mono text-[9px] shrink-0 self-start sm:self-center">
+            <div className="flex bg-slate-800 p-1 rounded border border-slate-600 font-mono text-[9px] shrink-0 self-start sm:self-center">
               <button
                 onClick={() => setHeatmapMode('velocity')}
-                className={`px-2.5 py-1 rounded transition-all cursor-pointer font-bold ${heatmapMode === 'velocity' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-850'}`}
+                className={`px-2.5 py-1 rounded transition-all cursor-pointer font-bold ${heatmapMode === 'velocity' ? 'bg-slate-700 text-slate-100 shadow-sm border border-slate-500' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 VELOCITY
               </button>
               <button
                 onClick={() => setHeatmapMode('drift')}
-                className={`px-2.5 py-1 rounded transition-all cursor-pointer font-bold ${heatmapMode === 'drift' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-850'}`}
+                className={`px-2.5 py-1 rounded transition-all cursor-pointer font-bold ${heatmapMode === 'drift' ? 'bg-slate-700 text-slate-100 shadow-sm border border-slate-500' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 TIMING DRIFT (ms)
               </button>
@@ -874,7 +875,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                         const cellData = velocityHeatmapData[stepIdx] || { step: stepIdx, avgVelocity: 0, noteCount: 0 };
                         const hasNotes = cellData.noteCount > 0;
                         const velocityIntensity = hasNotes ? cellData.avgVelocity / 127 : 0;
-                        const textColorClass = velocityIntensity > 0.45 ? "text-white" : "text-slate-800";
+                        const textColorClass = velocityIntensity > 0.35 ? "text-white" : "text-slate-300";
                         
                         const inlineBg = hasNotes
                           ? `rgba(30, 41, 59, ${0.15 + velocityIntensity * 0.8})`
@@ -894,8 +895,8 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                             onMouseLeave={() => setHoveredCell(null)}
                             className={`h-9 rounded border transition-all duration-150 cursor-crosshair flex flex-col items-center justify-center font-mono ${textColorClass} ${
                               isHovered 
-                                ? 'ring-2 ring-slate-800 scale-105 border-slate-900 shadow-sm z-10' 
-                                : 'border-slate-200'
+                                ? 'ring-2 ring-slate-100 scale-105 border-slate-400 shadow-sm z-10' 
+                                : 'border-slate-600'
                             }`}
                             style={{ backgroundColor: inlineBg }}
                           >
@@ -914,7 +915,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                         
                         // Scale absolute drift to a 0-1 ratio clamped at 20ms
                         const driftIntensity = hasNotes ? Math.min(1, absDrift / 20) : 0;
-                        const textColorClass = driftIntensity > 0.45 ? "text-white" : "text-slate-800";
+                        const textColorClass = driftIntensity > 0.35 ? "text-white" : "text-slate-300";
                         
                         // Early = Red, Late = Blue
                         let inlineBg = 'rgba(203, 213, 225, 0.2)';
@@ -940,8 +941,8 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                             onMouseLeave={() => setHoveredCell(null)}
                             className={`h-9 rounded border transition-all duration-150 cursor-crosshair flex flex-col items-center justify-center font-mono ${textColorClass} ${
                               isHovered 
-                                ? 'ring-2 ring-slate-800 scale-105 border-slate-900 shadow-sm z-10' 
-                                : 'border-slate-200'
+                                ? 'ring-2 ring-slate-100 scale-105 border-slate-400 shadow-sm z-10' 
+                                : 'border-slate-600'
                             }`}
                             style={{ backgroundColor: inlineBg }}
                           >
@@ -961,9 +962,9 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
 
               {/* Color guide */}
               {heatmapMode === 'velocity' ? (
-                <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-200 font-mono text-[7.5px] text-slate-400">
+                <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-600 font-mono text-[7.5px] text-slate-400">
                   <span>GHOSTNOTE (-)</span>
-                  <div className="flex gap-0.5 h-1 w-16 bg-slate-200 rounded-sm overflow-hidden">
+                  <div className="flex gap-0.5 h-1 w-16 bg-slate-600 rounded-sm overflow-hidden">
                     <div className="w-1/4 bg-slate-800/25"></div>
                     <div className="w-1/4 bg-slate-800/45"></div>
                     <div className="w-1/4 bg-slate-800/70"></div>
@@ -972,42 +973,42 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                   <span>ACCENT (127)</span>
                 </div>
               ) : (
-                <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-200 font-mono text-[7.5px] text-slate-400">
-                  <span className="text-red-500 font-bold">◀ FRÜH (RUSHING)</span>
-                  <div className="flex gap-0.5 h-1 w-20 bg-slate-200 rounded-sm overflow-hidden">
+                <div className="flex justify-between items-center mt-3 pt-2 border-t border-slate-600 font-mono text-[7.5px] text-slate-400">
+                  <span className="text-red-400 font-bold">◀ FRÜH (RUSHING)</span>
+                  <div className="flex gap-0.5 h-1 w-20 bg-slate-600 rounded-sm overflow-hidden">
                     <div className="w-1/2 bg-red-400"></div>
                     <div className="w-1/2 bg-blue-400"></div>
                   </div>
-                  <span className="text-blue-500 font-bold">SPÄT (DRAGGING) ▶</span>
+                  <span className="text-blue-400 font-bold">SPÄT (DRAGGING) ▶</span>
                 </div>
               )}
             </div>
 
             {/* Analysis card panel (Right) */}
-            <div className="w-full sm:w-44 flex flex-col justify-between font-mono text-[10px]">
-              <div className="bg-slate-50 border border-slate-200 rounded p-3 flex-1 flex flex-col justify-between min-h-[140px]">
-                <div>
-                  <span className="text-[8px] text-slate-400 font-bold block uppercase tracking-wider">Takt-Auszug</span>
+              <div className="w-full sm:w-44 flex flex-col justify-between font-mono text-[10px]">
+                <div className="bg-slate-800/40 border border-slate-600 rounded p-3 flex-1 flex flex-col justify-between min-h-[140px]">
+                  <div>
+                    <span className="text-[8px] text-slate-400 font-bold block uppercase tracking-wider">Takt-Auszug</span>
                   
                   {hoveredCell ? (
                     <div className="mt-2 space-y-1.5 animate-fade-in text-[10px]">
-                      <div className="font-bold text-slate-900 border-b border-slate-200 pb-0.5 flex justify-between">
+                      <div className="font-bold text-slate-100 border-b border-slate-600 pb-0.5 flex justify-between">
                         <span>Zählzeit:</span>
-                        <span className="text-slate-800">Beat {hoveredCell.beat}.{hoveredCell.sub}</span>
+                        <span className="text-slate-200">Beat {hoveredCell.beat}.{hoveredCell.sub}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-500">
+                        <span className="text-slate-400">
                           {heatmapMode === 'velocity' ? 'ø Velocity:' : 'ø Drift Dev:'}
                         </span>
-                        <span className="text-slate-800 font-bold">
+                        <span className="text-slate-100 font-bold">
                           {heatmapMode === 'velocity' 
                             ? `${hoveredCell.avgVel} / 127` 
                             : `${hoveredCell.avgDrift > 0 ? '+' : ''}${hoveredCell.avgDrift} ms`}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Anschläge:</span>
-                        <span className="text-slate-800 font-bold">{hoveredCell.count}</span>
+                        <span className="text-slate-400">Anschläge:</span>
+                        <span className="text-slate-100 font-bold">{hoveredCell.count}</span>
                       </div>
                       <p className="text-[8px] text-slate-400 italic mt-1.5 leading-relaxed">
                         {heatmapMode === 'velocity' ? (
@@ -1036,23 +1037,23 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                   )}
                 </div>
 
-                <div className="border-t border-slate-200 pt-2 mt-2 space-y-1 text-[9px]">
+                <div className="border-t border-slate-600 pt-2 mt-2 space-y-1 text-[9px]">
                   {heatmapMode === 'velocity' ? (
                     <>
-                      <div className="flex justify-between text-slate-500">
+                      <div className="flex justify-between text-slate-400">
                         <span>Lautstärkedifferenz:</span>
-                        <span className="text-slate-800 font-bold">{heatmapStats.dynamicDelta} Vel</span>
+                        <span className="text-slate-100 font-bold">{heatmapStats.dynamicDelta} Vel</span>
                       </div>
-                      <div className="flex justify-between text-slate-500">
+                      <div className="flex justify-between text-slate-400">
                         <span>Groove-Akzente:</span>
-                        <span className="text-slate-800 font-bold">{heatmapStats.accentuation}</span>
+                        <span className="text-slate-100 font-bold">{heatmapStats.accentuation}</span>
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="flex justify-between text-slate-500">
+                      <div className="flex justify-between text-slate-400">
                         <span>Stabilster Beat:</span>
-                        <span className="text-slate-800 font-bold">Beat {
+                        <span className="text-slate-100 font-bold">Beat {
                           (() => {
                             const activeDrifts = driftHeatmapData.filter(d => d.noteCount > 0);
                             if (activeDrifts.length === 0) return "-";
@@ -1062,9 +1063,9 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
                           })()
                         }</span>
                       </div>
-                      <div className="flex justify-between text-slate-500">
+                      <div className="flex justify-between text-slate-400">
                         <span>Tendenz:</span>
-                        <span className="text-slate-800 font-bold">{
+                        <span className="text-slate-100 font-bold">{
                           (() => {
                             const activeDrifts = driftHeatmapData.filter(d => d.noteCount > 0);
                             if (activeDrifts.length === 0) return "Ausgeglichen";

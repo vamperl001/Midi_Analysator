@@ -5,6 +5,7 @@ import {
   Legend, ReferenceLine
 } from 'recharts';
 import { AlsFileStats } from '../types';
+import { chart as chartTheme, accent } from '../theme';
 import {
   Music, TrendingUp, Activity, Heart, Calendar, Layers,
   ChevronDown, ChevronUp, BarChart3, LineChart as LineChartIcon
@@ -15,7 +16,7 @@ function getNoteName(key: number): string {
   return `${NOTE_NAMES[key % 12]}${Math.floor(key / 12) - 1}`;
 }
 
-const SECTION_STYLES = "bg-white border border-slate-200 rounded-lg p-6 shadow-sm";
+const SECTION_STYLES = "bg-slate-900/80 border border-slate-700/50 rounded-lg p-6";
 
 interface AdvancedChartsProps {
   data: AlsFileStats[];
@@ -132,7 +133,7 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
   const SectionHeader = ({ id, icon, title, color }: { id: string; icon: React.ReactNode; title: string; color: string }) => (
     <button
       onClick={() => toggleSection(id)}
-      className="w-full flex items-center justify-between text-xs font-bold tracking-widest text-slate-800 uppercase font-mono mb-4 cursor-pointer hover:text-slate-600 transition-colors"
+      className="w-full flex items-center justify-between text-xs font-bold tracking-widest text-slate-100 uppercase font-mono mb-4 cursor-pointer hover:text-slate-300 transition-colors"
     >
       <div className="flex items-center gap-2">
         <span className={color}>{icon}</span>
@@ -149,20 +150,20 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
         <SectionHeader id="velocity" icon={<BarChart3 className="w-4 h-4" />} title="Velocity-Verteilung (Anschlagsstärke)" color="text-orange-600" />
         {openSections.velocity && (
           <div>
-            <p className="text-xs text-slate-500 italic font-serif mb-4">
+            <p className="text-xs text-slate-400 italic font-serif mb-4">
               Wie gleichmäßig schlägst du die Tasten an? Eine breite Verteilung zeigt dynamisches, ausdrucksstarkes Spiel.
             </p>
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={velocityHistogram}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="range" tick={{ fontSize: 10 }} stroke="#94a3b8" />
-                <YAxis tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.axis} />
+                <XAxis dataKey="range" tick={{ fontSize: 10 }} stroke={chartTheme.axisText} />
+                <YAxis tick={{ fontSize: 10 }} stroke={chartTheme.axisText} />
                 <Tooltip
                   contentStyle={{ fontSize: 11, fontFamily: 'monospace' }}
                   formatter={(value: number) => [value.toLocaleString(), 'Anzahl']}
                   labelFormatter={(label) => `Velocity ${label}`}
                 />
-                <Bar dataKey="count" fill="#f97316" radius={[2, 2, 0, 0]}>
+                <Bar dataKey="count" fill={accent.orange} radius={[2, 2, 0, 0]}>
                   {velocityHistogram.map((entry, idx) => (
                     <Cell key={idx} fill={entry.count > 0 ? '#f97316' : '#f1f5f9'} />
                   ))}
@@ -170,19 +171,19 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
               </BarChart>
             </ResponsiveContainer>
             <div className="grid grid-cols-3 gap-4 mt-4 text-xs font-mono">
-              <div className="bg-slate-50 rounded p-3 text-center">
-                <span className="text-slate-400 text-[10px] uppercase block">Ø Velocity</span>
-                <span className="text-lg font-bold text-slate-900">
+              <div className="bg-slate-800/40 rounded p-3 text-center">
+                <span className="text-slate-500 text-[10px] uppercase block">Ø Velocity</span>
+                <span className="text-lg font-bold text-slate-100">
                   {Math.round(allNotes.reduce((s, n) => s + n.velocity, 0) / (allNotes.length || 1))}
                 </span>
               </div>
-              <div className="bg-slate-50 rounded p-3 text-center">
-                <span className="text-slate-400 text-[10px] uppercase block">Min</span>
-                <span className="text-lg font-bold text-slate-900">{allNotes.length > 0 ? Math.min(...allNotes.map(n => n.velocity)) : 0}</span>
+              <div className="bg-slate-800/40 rounded p-3 text-center">
+                <span className="text-slate-500 text-[10px] uppercase block">Min</span>
+                <span className="text-lg font-bold text-slate-100">{allNotes.length > 0 ? allNotes.reduce((a, n) => Math.min(a, n.velocity), Infinity) : 0}</span>
               </div>
-              <div className="bg-slate-50 rounded p-3 text-center">
-                <span className="text-slate-400 text-[10px] uppercase block">Max</span>
-                <span className="text-lg font-bold text-slate-900">{allNotes.length > 0 ? Math.max(...allNotes.map(n => n.velocity)) : 0}</span>
+              <div className="bg-slate-800/40 rounded p-3 text-center">
+                <span className="text-slate-500 text-[10px] uppercase block">Max</span>
+                <span className="text-lg font-bold text-slate-100">{allNotes.length > 0 ? allNotes.reduce((a, n) => Math.max(a, n.velocity), -Infinity) : 0}</span>
               </div>
             </div>
           </div>
@@ -194,7 +195,7 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
         <SectionHeader id="piano" icon={<Music className="w-4 h-4" />} title="Piano-Roll Dichte (Welche Töne spielst du?)" color="text-indigo-600" />
         {openSections.piano && (
           <div>
-            <p className="text-xs text-slate-500 italic font-serif mb-4">
+            <p className="text-xs text-slate-400 italic font-serif mb-4">
               Je dunkler das Feld, desto öfter wurde dieser Ton gespielt. Zeigt deine bevorzugten Lagen undTonvorräte.
             </p>
             <div className="overflow-x-auto">
@@ -214,10 +215,10 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
                 ))}
               </div>
             </div>
-            <div className="flex items-center gap-3 mt-3 text-[10px] font-mono text-slate-500">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-100 inline-block"></span> selten</span>
+            <div className="flex items-center gap-3 mt-3 text-[10px] font-mono text-slate-400">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-900/40 inline-block"></span> selten</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-500 inline-block"></span> mittel</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-900 inline-block"></span> häufig</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-300 inline-block"></span> häufig</span>
             </div>
           </div>
         )}
@@ -228,7 +229,7 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
         <SectionHeader id="bpm" icon={<Activity className="w-4 h-4" />} title="BPM-Stabilität (Sliding Tempo)" color="text-emerald-600" />
         {openSections.bpm && (
           <div>
-            <p className="text-xs text-slate-500 italic font-serif mb-4">
+            <p className="text-xs text-slate-400 italic font-serif mb-4">
               Zeigt, wie stark dein Tempo innerhalb einer Session schwankt – ein ruhiger Verlauf bedeutet sicheres Zeitgefühl.
             </p>
             {bpmSessionOptions.length > 0 ? (
@@ -238,7 +239,7 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
                   <select
                     value={selectedBpmSession}
                     onChange={e => setSelectedBpmSession(Number(e.target.value))}
-                    className="flex-1 bg-white border border-slate-200 text-xs px-2 py-1.5 rounded font-mono"
+                    className="flex-1 bg-slate-900 border border-slate-600 text-slate-200 text-xs px-2 py-1.5 rounded font-mono"
                   >
                     {bpmSessionOptions.map((s, i) => (
                       <option key={i} value={i}>{s.date} – {s.fileName.slice(0, 30)}</option>
@@ -247,16 +248,16 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
                 </div>
                 <ResponsiveContainer width="100%" height={220}>
                   <AreaChart data={bpmChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="time" tick={{ fontSize: 10 }} stroke="#94a3b8" label={{ value: 'Sekunden', position: 'bottom', fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} stroke="#94a3b8" domain={['dataMin - 5', 'dataMax + 5']} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.axis} />
+                    <XAxis dataKey="time" tick={{ fontSize: 10 }} stroke={chartTheme.axisText} label={{ value: 'Sekunden', position: 'bottom', fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} stroke={chartTheme.axisText} domain={['dataMin - 5', 'dataMax + 5']} />
                     <Tooltip
                       contentStyle={{ fontSize: 11, fontFamily: 'monospace' }}
                       formatter={(value: number) => [`${value.toFixed(1)} BPM`, 'Tempo']}
                       labelFormatter={(label) => `${label}s`}
                     />
-                    <Area type="monotone" dataKey="bpm" stroke="#10b981" fill="#10b981" fillOpacity={0.15} strokeWidth={2} dot={false} />
-                    <ReferenceLine y={bpmChartData[0]?.bpm} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'Start-BPM', fontSize: 9, fill: '#94a3b8' }} />
+                    <Area type="monotone" dataKey="bpm" stroke={accent.emerald} fill={accent.emerald} fillOpacity={0.15} strokeWidth={2} dot={false} />
+                    <ReferenceLine y={bpmChartData[0]?.bpm} stroke={chartTheme.axisText} strokeDasharray="4 4" label={{ value: 'Start-BPM', fontSize: 9, fill: chartTheme.axisText }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </>
@@ -272,23 +273,23 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
         <SectionHeader id="poly" icon={<Layers className="w-4 h-4" />} title="Polyphonie vs. Drift (Mehr Noten = ungenauer?)" color="text-rose-600" />
         {openSections.poly && (
           <div>
-            <p className="text-xs text-slate-500 italic font-serif mb-4">
+            <p className="text-xs text-slate-400 italic font-serif mb-4">
               Jeder Punkt ist eine Session. Zeigt den Zusammenhang zwischen Gleichzeitigkeit (Akkorddichte) und Timing-Genauigkeit.
             </p>
             {polyDriftData.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
                 <ScatterChart>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.axis} />
                   <XAxis
                     dataKey="polyphony"
                     name="Polyphonie"
-                    tick={{ fontSize: 10 }} stroke="#94a3b8"
+                    tick={{ fontSize: 10 }} stroke={chartTheme.axisText}
                     label={{ value: 'Ø gleichzeitige Noten', position: 'bottom', fontSize: 10 }}
                   />
                   <YAxis
                     dataKey="drift"
                     name="Drift (ms)"
-                    tick={{ fontSize: 10 }} stroke="#94a3b8"
+                    tick={{ fontSize: 10 }} stroke={chartTheme.axisText}
                     label={{ value: 'Drift (ms)', angle: -90, position: 'insideLeft', fontSize: 10 }}
                   />
                   <Tooltip
@@ -296,7 +297,7 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
                     formatter={(value: number, name: string) => [value.toFixed(2), name === 'polyphony' ? 'Polyphonie' : 'Drift (ms)']}
                     labelFormatter={() => ''}
                   />
-                  <Scatter data={polyDriftData} fill="#e11d48" opacity={0.7}>
+                  <Scatter data={polyDriftData} fill={accent.rose} opacity={0.7}>
                     {polyDriftData.map((entry, idx) => (
                       <Cell key={idx} fill={entry.drift > 20 ? '#e11d48' : entry.drift > 10 ? '#f97316' : '#10b981'} />
                     ))}
@@ -315,31 +316,31 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
         <SectionHeader id="pedal" icon={<Heart className="w-4 h-4" />} title="Pedal-Timing (Sustain-Genauigkeit)" color="text-purple-600" />
         {openSections.pedal && (
           <div>
-            <p className="text-xs text-slate-500 italic font-serif mb-4">
+            <p className="text-xs text-slate-400 italic font-serif mb-4">
               Wie sauber ist deine Pedalarbeit? Höhere Werte = besseres Legato.
             </p>
             {pedalData.length > 0 ? (
               <>
                 <ResponsiveContainer width="100%" height={220}>
                   <LineChart data={pedalData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="date" tick={{ fontSize: 9 }} stroke="#94a3b8" />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} stroke="#94a3b8" label={{ value: 'Score %', angle: -90, position: 'insideLeft', fontSize: 10 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.axis} />
+                    <XAxis dataKey="date" tick={{ fontSize: 9 }} stroke={chartTheme.axisText} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} stroke={chartTheme.axisText} label={{ value: 'Score %', angle: -90, position: 'insideLeft', fontSize: 10 }} />
                     <Tooltip
                       contentStyle={{ fontSize: 11, fontFamily: 'monospace' }}
                       formatter={(value: number) => [`${value}%`, 'Genauigkeit']}
                     />
-                    <ReferenceLine y={85} stroke="#10b981" strokeDasharray="4 4" label={{ value: 'Hervorragend', fontSize: 9, fill: '#10b981' }} />
-                    <ReferenceLine y={60} stroke="#f97316" strokeDasharray="4 4" label={{ value: 'Kritisch', fontSize: 9, fill: '#f97316' }} />
-                    <Line type="monotone" dataKey="accuracy" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                    <ReferenceLine y={85} stroke={accent.emerald} strokeDasharray="4 4" label={{ value: 'Hervorragend', fontSize: 9, fill: '#10b981' }} />
+                    <ReferenceLine y={60} stroke={accent.orange} strokeDasharray="4 4" label={{ value: 'Kritisch', fontSize: 9, fill: '#f97316' }} />
+                    <Line type="monotone" dataKey="accuracy" stroke={accent.violet} strokeWidth={2} dot={{ r: 3 }} />
                   </LineChart>
                 </ResponsiveContainer>
                 <div className="grid grid-cols-3 gap-3 mt-4 text-[10px] font-mono">
                   {pedalData.filter(p => p.classification).slice(0, 3).map((p, i) => (
-                    <div key={i} className="bg-slate-50 rounded p-2 text-center">
-                      <span className="text-slate-400 block">{p.date}</span>
-                      <span className="font-bold text-slate-800">{p.classification}</span>
-                      <span className="text-slate-500 block">{p.avgDelay.toFixed(1)}ms Verzögerung</span>
+                    <div key={i} className="bg-slate-800/40 rounded p-2 text-center">
+                      <span className="text-slate-500 block">{p.date}</span>
+                      <span className="font-bold text-slate-100">{p.classification}</span>
+                      <span className="text-slate-400 block">{p.avgDelay.toFixed(1)}ms Verzögerung</span>
                     </div>
                   ))}
                 </div>
@@ -356,14 +357,14 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
         <SectionHeader id="weekday" icon={<Calendar className="w-4 h-4" />} title="Wochentag-Analyse (An welchen Tagen spielst du am besten?)" color="text-sky-600" />
         {openSections.weekday && (
           <div>
-            <p className="text-xs text-slate-500 italic font-serif mb-4">
+            <p className="text-xs text-slate-400 italic font-serif mb-4">
               Durchschnittlicher Drift nach Wochentag. Niedriger = tighter Timing. Erkennst du deine "guten" Tage?
             </p>
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={weekdayData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                <YAxis tick={{ fontSize: 10 }} stroke="#94a3b8" label={{ value: 'Ø Drift (ms)', angle: -90, position: 'insideLeft', fontSize: 10 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.axis} />
+                <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke={chartTheme.axisText} />
+                <YAxis tick={{ fontSize: 10 }} stroke={chartTheme.axisText} label={{ value: 'Ø Drift (ms)', angle: -90, position: 'insideLeft', fontSize: 10 }} />
                 <Tooltip
                   contentStyle={{ fontSize: 11, fontFamily: 'monospace' }}
                   formatter={(value: number, name: string) => {
@@ -377,7 +378,7 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
                     <Cell
                       key={idx}
                       fill={entry.avgDrift > 20 ? '#e11d48' : entry.avgDrift > 10 ? '#f97316' : '#0ea5e9'}
-                      fillOpacity={0.5 + entry.count / Math.max(...weekdayData.map(d => d.count)) * 0.5}
+                      fillOpacity={0.5 + entry.count / weekdayData.reduce((a, d) => Math.max(a, d.count), 0) * 0.5}
                     />
                   ))}
                 </Bar>
@@ -385,10 +386,10 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
             </ResponsiveContainer>
             <div className="flex flex-wrap gap-3 mt-3 text-[10px] font-mono">
               {weekdayData.map(d => (
-                <div key={d.day} className="bg-slate-50 px-2.5 py-1.5 rounded border border-slate-200 text-center min-w-[60px]">
-                  <div className="text-slate-900 font-bold">{d.day}</div>
-                  <div className="text-slate-500">{d.avgDrift.toFixed(1)}ms</div>
-                  <div className="text-slate-400 text-[9px]">{d.count} Sessions</div>
+                <div key={d.day} className="bg-slate-800/40 px-2.5 py-1.5 rounded border border-slate-700/50 text-center min-w-[60px]">
+                  <div className="text-slate-100 font-bold">{d.day}</div>
+                  <div className="text-slate-400">{d.avgDrift.toFixed(1)}ms</div>
+                  <div className="text-slate-500 text-[9px]">{d.count} Sessions</div>
                 </div>
               ))}
             </div>

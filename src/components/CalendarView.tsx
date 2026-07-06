@@ -273,13 +273,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in" id="calendar-section">
       
       {/* TAB SWITCHER BAR */}
-      <div className="lg:col-span-3 flex border-b border-slate-200 bg-white rounded-lg p-1.5 shadow-sm font-mono text-xs gap-1.5 justify-start items-center">
+      <div className="lg:col-span-3 flex border-b border-slate-700 bg-slate-900 rounded-lg p-1.5 shadow-sm font-mono text-xs gap-1.5 justify-start items-center">
         <button 
           onClick={() => setViewMode("calendar")}
           className={`py-2 px-4 rounded-md font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
             viewMode === "calendar" 
               ? "bg-slate-900 text-white shadow-sm" 
-              : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+              : "text-slate-500 hover:text-slate-200 hover:bg-slate-800/60"
           }`}
         >
           <Calendar className="w-3.5 h-3.5" />
@@ -290,7 +290,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           className={`py-2 px-4 rounded-md font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
             viewMode === "timeline" 
               ? "bg-slate-900 text-white shadow-sm" 
-              : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+              : "text-slate-500 hover:text-slate-200 hover:bg-slate-800/60"
           }`}
         >
           <TrendingUp className="w-3.5 h-3.5" />
@@ -301,11 +301,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       {viewMode === "calendar" ? (
         <>
           {/* LINKER FLÜGEL: MONATLICHE HITMAP / KALENDER-MATRIX (2/3 Spalten) */}
-      <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm flex flex-col lg:col-span-2">
+      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 shadow-sm flex flex-col lg:col-span-2">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
           <div>
-            <h3 className="text-xs font-bold tracking-widest text-slate-800 uppercase font-mono flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-slate-900" />
+            <h3 className="text-xs font-bold tracking-widest text-slate-200 uppercase font-mono flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-slate-100" />
               📅 Kreativer Kalender & Microtiming-Historie
             </h3>
             <p className="text-xs text-slate-500 mt-1 italic font-serif">
@@ -314,19 +314,19 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </div>
 
           {/* Month Controller Pagination */}
-          <div className="flex items-center gap-1.5 self-start sm:self-auto bg-slate-100 p-1 rounded border border-slate-200">
+          <div className="flex items-center gap-1.5 self-start sm:self-auto bg-slate-800 p-1 rounded border border-slate-700">
             <button 
               onClick={handlePrevMonth}
-              className="p-1.5 rounded hover:bg-white text-slate-750 transition-colors cursor-pointer"
+              className="p-1.5 rounded hover:bg-slate-800 text-slate-750 transition-colors cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-xs font-mono font-bold text-slate-800 px-3 min-w-[100px] text-center">
+            <span className="text-xs font-mono font-bold text-slate-200 px-3 min-w-[100px] text-center">
               {GERMAN_MONTHS[calendarMonth]} 2026
             </span>
             <button 
               onClick={handleNextMonth}
-              className="p-1.5 rounded hover:bg-white text-slate-750 transition-colors cursor-pointer"
+              className="p-1.5 rounded hover:bg-slate-800 text-slate-750 transition-colors cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -334,14 +334,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
 
         {/* Legend Key */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-6 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-500">
-          <span className="font-bold text-slate-700">Groove-Timing:</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-6 px-4 py-2.5 bg-slate-800/60 border border-slate-700 rounded text-[10px] font-mono text-slate-500">
+          <span className="font-bold text-slate-300">Groove-Timing:</span>
           <span className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 bg-emerald-500 border border-emerald-600 rounded"></span>
+            <span className="w-2.5 h-2.5 bg-emerald-900/300 border border-emerald-600 rounded"></span>
             Tight (&lt;9ms Drift)
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 bg-blue-500 border border-blue-600 rounded"></span>
+            <span className="w-2.5 h-2.5 bg-blue-900/300 border border-blue-600 rounded"></span>
             Groovy (9-17ms)
           </span>
           <span className="flex items-center gap-1">
@@ -349,7 +349,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             Loose/Swing (&gt;17ms)
           </span>
           <span className="flex items-center gap-1 ml-auto">
-            <span className="w-2.5 h-2.5 bg-white border border-slate-300 rounded"></span>
+            <span className="w-2.5 h-2.5 bg-slate-900 border border-slate-600 rounded"></span>
             Keine Session
           </span>
         </div>
@@ -372,31 +372,31 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 return (
                   <div 
                     key={`empty-${idx}`} 
-                    className="aspect-square bg-slate-50/40 rounded-md border border-dotted border-slate-150"
+                    className="aspect-square bg-slate-800/60/40 rounded-md border border-dotted border-slate-150"
                   />
                 );
               }
 
               // Color determination
-              let cellBg = "bg-white text-slate-800 border-slate-250 hover:border-slate-400";
-              let badgeBg = "bg-slate-100 text-slate-500";
+              let cellBg = "bg-slate-900 text-slate-200 border-slate-250 hover:border-slate-400";
+              let badgeBg = "bg-slate-800 text-slate-500";
               let speedText = "";
 
               if (session) {
                 speedText = `${session.tempo.toFixed(0)} BPM`;
                 if (session.avgDriftMs < 9) {
-                  cellBg = "bg-emerald-50 text-emerald-950 border-emerald-400 hover:bg-emerald-100/80 shadow-sm ring-1 ring-emerald-300";
-                  badgeBg = "bg-emerald-200 text-emerald-900";
+                  cellBg = "bg-emerald-900/30 text-emerald-300 border-emerald-400 hover:bg-emerald-100/80 shadow-sm ring-1 ring-emerald-300";
+                  badgeBg = "bg-emerald-800/40 text-emerald-300";
                 } else if (session.avgDriftMs >= 9 && session.avgDriftMs <= 17) {
-                  cellBg = "bg-blue-50 text-blue-950 border-blue-400 hover:bg-blue-100/80 shadow-sm ring-1 ring-blue-300";
-                  badgeBg = "bg-blue-200 text-blue-900";
+                  cellBg = "bg-blue-900/30 text-blue-300 border-blue-400 hover:bg-blue-100/80 shadow-sm ring-1 ring-blue-300";
+                  badgeBg = "bg-blue-800/40 text-blue-300";
                 } else if (session.avgDriftMs > 17 && session.avgDriftMs <= 30) {
-                  cellBg = "bg-amber-50 text-amber-950 border-amber-400 hover:bg-amber-100/80 shadow-sm ring-1 ring-amber-300";
-                  badgeBg = "bg-amber-100 text-amber-950";
+                  cellBg = "bg-amber-900/30 text-amber-300 border-amber-400 hover:bg-amber-900/30/80 shadow-sm ring-1 ring-amber-300";
+                  badgeBg = "bg-amber-900/30 text-amber-300";
                 } else {
                   // DRIFT > 30ms WARNING STYLE
-                  cellBg = "bg-rose-50 text-rose-950 border-rose-400 hover:bg-rose-100/80 shadow-sm ring-1 ring-rose-300 animate-[pulse_3s_infinite]";
-                  badgeBg = "bg-rose-200 text-rose-900";
+                  cellBg = "bg-rose-900/30 text-rose-300 border-rose-400 hover:bg-rose-900/30/80 shadow-sm ring-1 ring-rose-300 animate-[pulse_3s_infinite]";
+                  badgeBg = "bg-rose-800/40 text-rose-300";
                 }
               }
 
@@ -417,8 +417,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   <div className="flex justify-between items-center w-full">
                     <span className="text-xs font-mono font-bold leading-none">{dayNum}</span>
                     {session && (
-                      <span className={`text-[7.5px] px-1 font-mono rounded opacity-90 leading-tight flex items-center gap-0.5 ${session.avgDriftMs > 30 ? 'bg-rose-200 text-rose-900 font-extrabold border border-rose-300' : ''}`}>
-                        {session.avgDriftMs > 30 && <AlertTriangle className="w-2.5 h-2.5 text-rose-700 animate-bounce shrink-0" />}
+                      <span className={`text-[7.5px] px-1 font-mono rounded opacity-90 leading-tight flex items-center gap-0.5 ${session.avgDriftMs > 30 ? 'bg-rose-800/40 text-rose-300 font-extrabold border border-rose-300' : ''}`}>
+                        {session.avgDriftMs > 30 && <AlertTriangle className="w-2.5 h-2.5 text-rose-300 animate-bounce shrink-0" />}
                         {session.avgDriftMs.toFixed(1)}ms
                       </span>
                     )}
@@ -426,7 +426,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
                   {session ? (
                     <div className="flex flex-col gap-0.5 mt-auto text-[8px] font-mono leading-none tracking-tight">
-                      <span className="font-semibold text-slate-900 truncate">
+                      <span className="font-semibold text-slate-100 truncate">
                         {session.fileName.includes("[") ? session.fileName.substring(session.fileName.indexOf("[") + 1, session.fileName.indexOf("]")) : "Sitzung"}
                       </span>
                       <span className="text-slate-500 font-medium">{speedText}</span>
@@ -441,10 +441,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
 
         {/* Information Callout */}
-        <div className="mt-6 flex gap-2.5 bg-slate-50 border border-slate-200 rounded p-4 text-[11px] leading-relaxed font-mono text-slate-600">
-          <Info className="w-4 h-4 text-slate-700 shrink-0 mt-0.5" />
+        <div className="mt-6 flex gap-2.5 bg-slate-800/60 border border-slate-700 rounded p-4 text-[11px] leading-relaxed font-mono text-slate-400">
+          <Info className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
           <div>
-            <span className="font-bold text-slate-900">KALENDER-INTERAKTION:</span> Klicke auf ausgefüllte Kalendertage (Maikollektion ist prall befüllt!), um die exakten Timing-Spuren, BPM und Notenkomplexiät auszulesen. Nutze anschliessend den Lade-Button, um im Dashboard tiefer ins Piano Roll einzutauchen.
+            <span className="font-bold text-slate-100">KALENDER-INTERAKTION:</span> Klicke auf ausgefüllte Kalendertage (Maikollektion ist prall befüllt!), um die exakten Timing-Spuren, BPM und Notenkomplexiät auszulesen. Nutze anschliessend den Lade-Button, um im Dashboard tiefer ins Piano Roll einzutauchen.
           </div>
         </div>
       </div>
@@ -453,9 +453,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       <div className="flex flex-col gap-6" id="weekday-detail-aside">
         
         {/* PANEL 1: WOCHENTAGS-VERGLEICHSTABELLE (Aggregierte Abweichung) */}
-        <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm flex flex-col">
-          <h3 className="text-xs font-bold tracking-widest text-slate-800 uppercase font-mono mb-4 flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-slate-900" />
+        <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 shadow-sm flex flex-col">
+          <h3 className="text-xs font-bold tracking-widest text-slate-200 uppercase font-mono mb-4 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-slate-100" />
             📊 Wochentags-Timing im Vergleich
           </h3>
 
@@ -463,9 +463,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             {weekdayStats.map((item) => {
               const percentage = Math.min(100, (item.avgDrift / 25) * 100);
               
-              let barColor = "bg-emerald-500";
+              let barColor = "bg-emerald-900/300";
               if (item.avgDrift > 8 && item.avgDrift <= 17) {
-                barColor = "bg-blue-500";
+                barColor = "bg-blue-900/300";
               } else if (item.avgDrift > 17) {
                 barColor = "bg-[#d97706]";
               }
@@ -477,8 +477,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   key={item.weekdayIdx} 
                   onMouseEnter={() => setHoveredDayIdx(item.originalArrIndex)}
                   onMouseLeave={() => setHoveredDayIdx(null)}
-                  className={`font-mono text-[11px] border-b border-slate-100 pb-3 last:border-b-0 last:pb-0 transition-all p-1.5 rounded-md ${
-                    isHighlighted ? "bg-slate-50 border-slate-300 shadow-sm scale-[1.02] -translate-x-1" : "border-transparent"
+                  className={`font-mono text-[11px] border-b border-slate-800 pb-3 last:border-b-0 last:pb-0 transition-all p-1.5 rounded-md ${
+                    isHighlighted ? "bg-slate-800/60 border-slate-600 shadow-sm scale-[1.02] -translate-x-1" : "border-transparent"
                   }`}
                 >
                   <div className="flex justify-between items-baseline mb-1">
@@ -499,7 +499,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         </span>
                       </div>
 
-                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
                         <div 
                           className={`h-full ${barColor} rounded-full transition-all duration-500`}
                           style={{ width: `${percentage}%` }}
@@ -516,65 +516,65 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
 
         {/* PANEL 2: ZOOM FOKUS DAY CARD DETAILS */}
-        <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm flex flex-col justify-between min-h-[220px]">
+        <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 shadow-sm flex flex-col justify-between min-h-[220px]">
           <div>
             <h3 className="text-xs font-bold tracking-widest text-[#1a1a1a] uppercase font-mono mb-3">
               🔍 Detailansicht & Schnell-Transfer
             </h3>
             
             {selectedDaySession ? (
-              <div className="space-y-3 font-mono text-[11px] bg-slate-50 border border-slate-200 rounded p-4">
-                <div className="border-b border-slate-200 pb-2 flex justify-between items-center">
-                  <span className="font-bold text-slate-900 text-xs">
+              <div className="space-y-3 font-mono text-[11px] bg-slate-800/60 border border-slate-700 rounded p-4">
+                <div className="border-b border-slate-700 pb-2 flex justify-between items-center">
+                  <span className="font-bold text-slate-100 text-xs">
                     {new Date(selectedDaySession.date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}
                   </span>
-                  <span className="text-[8px] bg-slate-250 text-slate-700 font-bold px-1.5 py-0.5 rounded uppercase">
+                  <span className="text-[8px] bg-slate-250 text-slate-300 font-bold px-1.5 py-0.5 rounded uppercase">
                     LIVE_ALS
                   </span>
                 </div>
 
                 <div className="space-y-2 py-1">
-                  <div className="flex justify-between items-center text-slate-600">
+                  <div className="flex justify-between items-center text-slate-400">
                     <span>Dateiname:</span>
-                    <span className="text-slate-900 font-bold text-[9.5px] truncate max-w-[160px]" title={selectedDaySession.fileName}>
+                    <span className="text-slate-100 font-bold text-[9.5px] truncate max-w-[160px]" title={selectedDaySession.fileName}>
                       {selectedDaySession.fileName}
                     </span>
                   </div>
                   
-                  <div className="flex justify-between items-center text-slate-600">
+                  <div className="flex justify-between items-center text-slate-400">
                     <span>Projekttempo:</span>
-                    <span className="text-slate-900 font-bold flex items-center gap-0.5">
+                    <span className="text-slate-100 font-bold flex items-center gap-0.5">
                       <Music className="w-3 h-3 text-slate-450" />
                       {selectedDaySession.tempo} BPM
                     </span>
                   </div>
 
-                  <div className="flex justify-between items-center text-slate-600">
+                  <div className="flex justify-between items-center text-slate-400">
                     <span>Midi Notenanzahl:</span>
-                    <span className="text-slate-900 font-bold">
+                    <span className="text-slate-100 font-bold">
                       {selectedDaySession.notesCount} Events
                     </span>
                   </div>
 
-                  <div className="flex justify-between items-center text-slate-600">
+                  <div className="flex justify-between items-center text-slate-400">
                     <span>Mittlere Drift:</span>
                     <span className={`font-bold flex items-center gap-1.5 ${
                       selectedDaySession.avgDriftMs < 9 
-                        ? 'text-emerald-700' 
+                        ? 'text-emerald-300' 
                         : selectedDaySession.avgDriftMs > 30 
                         ? 'text-rose-600 font-extrabold animate-pulse' 
                         : selectedDaySession.avgDriftMs > 17 
-                        ? 'text-amber-700' 
-                        : 'text-blue-700'
+                        ? 'text-amber-300' 
+                        : 'text-blue-300'
                     }`}>
                       {selectedDaySession.avgDriftMs > 30 && <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-bounce shrink-0" />}
                       {selectedDaySession.avgDriftMs.toFixed(2)} ms
                     </span>
                   </div>
 
-                  <div className="flex justify-between items-center text-slate-600">
+                  <div className="flex justify-between items-center text-slate-400">
                     <span>Swingfaktor 16Tel:</span>
-                    <span className="text-slate-900 font-bold">
+                    <span className="text-slate-100 font-bold">
                       {selectedDaySession.swingFactor16th.toFixed(1)} %
                     </span>
                   </div>
@@ -589,7 +589,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="h-full flex flex-col justify-center items-center text-center text-slate-400 p-5 mt-4 border border-dashed border-slate-200 rounded">
+              <div className="h-full flex flex-col justify-center items-center text-center text-slate-400 p-5 mt-4 border border-dashed border-slate-700 rounded">
                 <Calendar className="w-8 h-8 text-slate-300 mb-2" />
                 <p className="text-xs">Kein Tag vorfokussiert.</p>
                 <p className="text-[9.5px] mt-1 italic opacity-85 leading-normal">
@@ -601,16 +601,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
           {/* Golden KPI stats at bottom */}
           {highlights && (
-            <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-200 text-slate-600 font-mono text-[9px]">
-              <div className="bg-slate-50 p-2.5 rounded border border-slate-150">
+            <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-700 text-slate-400 font-mono text-[9px]">
+              <div className="bg-slate-800/60 p-2.5 rounded border border-slate-150">
                 <span className="text-slate-400 font-medium block uppercase text-[7.5px] leading-tight">Groove Spitzenreiter</span>
                 <span className="font-bold text-slate-850 block mt-0.5">{highlights.tightest.name}</span>
                 <span className="text-emerald-600 text-[8.5px] font-bold">ø {highlights.tightest.avgDrift.toFixed(1)} ms Drift</span>
               </div>
-              <div className="bg-slate-50 p-2.5 rounded border border-slate-150">
+              <div className="bg-slate-800/60 p-2.5 rounded border border-slate-150">
                 <span className="text-slate-400 font-medium block uppercase text-[7.5px] leading-tight">Beat Swing König</span>
                 <span className="font-bold text-slate-850 block mt-0.5">{highlights.swingiest.name}</span>
-                <span className="text-blue-600 text-[8.5px] font-bold">ø {highlights.swingiest.avgSwing.toFixed(0)}% Swing</span>
+                <span className="text-blue-400 text-[8.5px] font-bold">ø {highlights.swingiest.avgSwing.toFixed(0)}% Swing</span>
               </div>
             </div>
           )}
@@ -619,13 +619,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       </div>
 
       {/* --- NEUE SEKTION: WOCHENTAGS_CORRELATION (DIAGRAMM & TABELLE GEKOPPELT) --- */}
-      <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm lg:col-span-3 flex flex-col lg:flex-row gap-6 mt-2" id="weekday-correlation-analysis">
+      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 shadow-sm lg:col-span-3 flex flex-col lg:flex-row gap-6 mt-2" id="weekday-correlation-analysis">
         
         {/* LEFTSIDE CHART CONTAINER */}
-        <div className="flex-1 shrink-0 bg-slate-50 border border-slate-200 p-4 rounded-lg">
-          <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-200">
+        <div className="flex-1 shrink-0 bg-slate-800/60 border border-slate-700 p-4 rounded-lg">
+          <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-700">
             <div>
-              <h4 className="text-[11px] font-bold font-mono text-slate-900 uppercase tracking-widest flex items-center gap-1.5">
+              <h4 className="text-[11px] font-bold font-mono text-slate-100 uppercase tracking-widest flex items-center gap-1.5">
                 <TrendingUp className="w-4 h-4 text-indigo-600" />
                 📈 Timing-Drift vs. Projekttempo nach Wochentag
               </h4>
@@ -637,12 +637,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             {/* Legend indicators */}
             <div className="flex gap-3 text-[9px] font-mono">
               <span className="flex items-center gap-1">
-                <span className="w-3 h-1.5 bg-indigo-200 border border-indigo-400 rounded-sm"></span>
+                <span className="w-3 h-1.5 bg-indigo-800/40 border border-indigo-400 rounded-sm"></span>
                 ø Tempo (BPM, l. Achse)
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-3 h-0.5 bg-emerald-500 relative flex items-center justify-center">
-                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                <span className="w-3 h-0.5 bg-emerald-900/300 relative flex items-center justify-center">
+                  <span className="w-1.5 h-1.5 bg-emerald-900/300 rounded-full"></span>
                 </span>
                 ø Drift (ms, r. Achse)
               </span>
@@ -818,7 +818,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse font-mono text-[10.5px]">
               <thead>
-                <tr className="border-b border-slate-200 text-slate-400 font-bold uppercase text-[9px] tracking-wider">
+                <tr className="border-b border-slate-700 text-slate-400 font-bold uppercase text-[9px] tracking-wider">
                   <th className="pb-2">Wochentag</th>
                   <th className="pb-2 text-center">Spuren</th>
                   <th className="pb-2 text-right">Tempo (BPM)</th>
@@ -843,10 +843,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       grooveColor = "text-emerald-500";
                     } else if (item.avgDrift > 14 && item.avgDrift <= 18) {
                       grooveType = "Laid-back";
-                      grooveColor = "text-blue-600";
+                      grooveColor = "text-blue-400";
                     } else {
                       grooveType = "Heavy Swing";
-                      grooveColor = "text-amber-600 font-semibold";
+                      grooveColor = "text-amber-400 font-semibold";
                     }
                   }
 
@@ -855,20 +855,20 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       key={`list-row-${item.weekdayIdx}`}
                       onMouseEnter={() => setHoveredDayIdx(item.originalArrIndex)}
                       onMouseLeave={() => setHoveredDayIdx(null)}
-                      className={`border-b border-slate-100 last:border-b-0 transition-colors duration-150 cursor-pointer ${
-                        isHighlighted ? "bg-indigo-50/70" : ""
+                      className={`border-b border-slate-800 last:border-b-0 transition-colors duration-150 cursor-pointer ${
+                        isHighlighted ? "bg-indigo-900/30/70" : ""
                       }`}
                     >
-                      <td className="py-2.5 font-bold text-slate-800">
+                      <td className="py-2.5 font-bold text-slate-200">
                         {item.name}
                       </td>
                       <td className="py-2.5 text-center text-slate-500">
                         {item.count}
                       </td>
-                      <td className="py-2.5 text-right font-medium text-slate-900">
+                      <td className="py-2.5 text-right font-medium text-slate-100">
                         {item.count > 0 ? `${item.avgTempo.toFixed(0)} BPM` : "—"}
                       </td>
-                      <td className="py-2.5 text-right font-bold text-indigo-950">
+                      <td className="py-2.5 text-right font-bold text-indigo-300">
                         {item.count > 0 ? `${item.avgDrift.toFixed(1)} ms` : "—"}
                       </td>
                       <td className={`py-2.5 text-right text-[9.5px] ${grooveColor}`}>
@@ -889,7 +889,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               </div>
 
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] bg-indigo-500 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                <span className="text-[10px] bg-indigo-900/300 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
                   Disziplin-Score: {dynamicDisciplineInsights.score}
                 </span>
                 <span className="text-[10px] text-slate-400">
@@ -927,20 +927,20 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       
       {/* KPI Dashboard Ribbon */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 w-full">
-        <div className="bg-white border border-slate-200 p-5 rounded-lg shadow-sm font-mono flex flex-col justify-between">
+        <div className="bg-slate-900 border border-slate-700 p-5 rounded-lg shadow-sm font-mono flex flex-col justify-between">
           <div>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Gefilmte Einheiten</span>
-            <span className="text-3xl font-extrabold text-slate-900 block mt-1">{sortedSessions.length}</span>
+            <span className="text-3xl font-extrabold text-slate-100 block mt-1">{sortedSessions.length}</span>
           </div>
           <p className="text-[9.5px] text-slate-500 mt-2 font-serif italic">14 Unterrichtstage als chronologisches Logbuch.</p>
         </div>
 
-        <div className="bg-white border border-slate-200 p-5 rounded-lg shadow-sm font-mono flex flex-col justify-between">
+        <div className="bg-slate-900 border border-slate-700 p-5 rounded-lg shadow-sm font-mono flex flex-col justify-between">
           <div>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Timing-Progression (Lern-Kurve)</span>
             {sortedSessions.length >= 2 ? (
               <div>
-                <span className="text-sm font-bold text-slate-900 block mt-1 leading-normal">
+                <span className="text-sm font-bold text-slate-100 block mt-1 leading-normal">
                   {sortedSessions[0].avgDriftMs.toFixed(1)}ms <span className="text-slate-400 font-normal">→</span> {sortedSessions[sortedSessions.length - 1].avgDriftMs.toFixed(1)}ms
                 </span>
                 {sortedSessions[0].avgDriftMs > sortedSessions[sortedSessions.length - 1].avgDriftMs ? (
@@ -958,13 +958,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <p className="text-[9.5px] text-slate-500 mt-1 font-serif italic">Entwicklung deiner mittleren Anschlags-Verzögerung.</p>
         </div>
 
-        <div className="bg-white border border-slate-200 p-5 rounded-lg shadow-sm font-mono flex flex-col justify-between">
+        <div className="bg-slate-900 border border-slate-700 p-5 rounded-lg shadow-sm font-mono flex flex-col justify-between">
           <div>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Gespielter Frequenzbereich</span>
             {sortedSessions.length > 0 ? (
               <div>
                 <span className="text-2xl font-extrabold text-indigo-600 block mt-1">
-                  {Math.min(...sortedSessions.map(s => s.estimatedBpm || s.tempo)).toFixed(0)} - {Math.max(...sortedSessions.map(s => s.estimatedBpm || s.tempo)).toFixed(0)} BPM
+                  {sortedSessions.reduce((a, s) => Math.min(a, s.estimatedBpm || s.tempo), Infinity).toFixed(0)} - {sortedSessions.reduce((a, s) => Math.max(a, s.estimatedBpm || s.tempo), -Infinity).toFixed(0)} BPM
                 </span>
                 <span className="text-[9px] text-slate-500">Auto-detektierte Pulse ohne Live Click!</span>
               </div>
@@ -975,11 +975,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <p className="text-[9.5px] text-slate-500 mt-2 font-serif italic">Gefundene physische Tempi aus Anschlags-Intervallen.</p>
         </div>
 
-        <div className="bg-white border border-slate-200 p-5 rounded-lg shadow-sm font-mono flex flex-col justify-between">
+        <div className="bg-slate-900 border border-slate-700 p-5 rounded-lg shadow-sm font-mono flex flex-col justify-between">
           <div>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Vielfalt & Stilbalance</span>
             {sortedSessions.length > 0 ? (
-              <div className="text-xs font-bold text-slate-800 space-y-1 mt-1">
+              <div className="text-xs font-bold text-slate-200 space-y-1 mt-1">
                 <div className="flex justify-between">
                   <span className="text-emerald-600">Melodisch:</span>
                   <span>{sortedSessions.filter(s => s.styleCategory === "Melodisch").length} S.</span>
@@ -998,10 +998,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       </div>
 
       {/* MAIN GRAPH: PULSE VS NOMINAL BPM */}
-      <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm flex flex-col">
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-6 border-b border-slate-100 pb-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 shadow-sm flex flex-col">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-6 border-b border-slate-800 pb-4">
           <div>
-            <h3 className="text-xs font-bold tracking-widest text-slate-800 uppercase font-mono flex items-center gap-2">
+            <h3 className="text-xs font-bold tracking-widest text-slate-200 uppercase font-mono flex items-center gap-2">
               <Activity className="w-4 h-4 text-indigo-600" />
               🎵 Das Metronom-Geheimnis: Wahrer Puls vs. Projekt-Tempo (Silent Click)
             </h3>
@@ -1026,7 +1026,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             Keine Sessions vorhanden. Bitte lade Beispieldaten, um die Progression einzusehen!
           </div>
         ) : (
-          <div className="w-full relative overflow-hidden bg-slate-50 p-4 border border-slate-200 rounded-lg">
+          <div className="w-full relative overflow-hidden bg-slate-800/60 p-4 border border-slate-700 rounded-lg">
             <svg viewBox="0 0 800 240" className="w-full h-auto font-mono text-[9px] select-none">
               <line x1="50" y1="30" x2="750" y2="30" stroke="#f1f5f9" />
               <line x1="50" y1="80" x2="750" y2="80" stroke="#f1f5f9" />
@@ -1167,7 +1167,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       </div>
 
       {/* CHRONOLOGICAL LIST OF DAYS WITH SECTION DESCRIPTIONS */}
-      <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm flex flex-col">
+      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 shadow-sm flex flex-col">
         <h3 className="text-xs font-bold tracking-widest text-[#1a1a1a] uppercase font-mono mb-4 flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
           🗂️ Lektionen-Logbuch & Detailauswertungen (Tag 1 bis {sortedSessions.length})
@@ -1187,16 +1187,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 onMouseLeave={() => setHoveredDayIdx(null)}
                 className={`border rounded-lg p-4 font-mono transition-all duration-200 ${
                   isHovered 
-                    ? 'border-indigo-400 bg-indigo-50/20 shadow-sm scale-[1.01] -translate-y-0.5' 
-                    : 'border-slate-200 bg-slate-50/40'
+                    ? 'border-indigo-400 bg-indigo-900/30/20 shadow-sm scale-[1.01] -translate-y-0.5' 
+                    : 'border-slate-700 bg-slate-800/60/40'
                 }`}
               >
-                <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2">
+                <div className="flex justify-between items-center border-b border-slate-700 pb-2 mb-2">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] bg-indigo-600 text-white font-extrabold px-1.5 py-0.5 rounded uppercase">
                       Tag {sIdx + 1}
                     </span>
-                    <span className="font-bold text-xs text-slate-800">
+                    <span className="font-bold text-xs text-slate-200">
                       {new Date(session.date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}
                     </span>
                   </div>
@@ -1205,15 +1205,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-600 border-b border-dashed border-slate-200 pb-2 mb-2">
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400 border-b border-dashed border-slate-700 pb-2 mb-2">
                   <div>
                     <span className="text-[8px] text-slate-400 block uppercase font-bold">Gefundener Puls:</span>
-                    <span className="text-slate-900 font-bold text-xs">{estBpm.toFixed(1)} BPM</span>
+                    <span className="text-slate-100 font-bold text-xs">{estBpm.toFixed(1)} BPM</span>
                     <span className="text-[7.5px] text-slate-400 block">Nominal: {nominalBpm} BPM</span>
                   </div>
                   <div>
                     <span className="text-[8px] text-slate-400 block uppercase font-bold">Microtiming Drift:</span>
-                    <span className={`font-bold text-xs flex items-center gap-1 ${session.avgDriftMs > 30 ? 'text-rose-600 animate-[pulse_2s_infinite]' : 'text-indigo-950'}`}>
+                    <span className={`font-bold text-xs flex items-center gap-1 ${session.avgDriftMs > 30 ? 'text-rose-600 animate-[pulse_2s_infinite]' : 'text-indigo-300'}`}>
                       {session.avgDriftMs > 30 && <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0 animate-bounce" />}
                       {session.avgDriftMs.toFixed(1)} ms
                     </span>
@@ -1231,18 +1231,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   </div>
                   <div>
                     <span className="text-[8px] text-slate-400 block uppercase font-bold">Strukturtyp:</span>
-                    <span className="text-indigo-700 font-bold">{session.structureCategory || '—'}</span>
+                    <span className="text-indigo-300 font-bold">{session.structureCategory || '—'}</span>
                   </div>
                   <div>
                     <span className="text-[8px] text-slate-400 block uppercase font-bold">Stilstufe (Midi):</span>
-                    <span className="text-emerald-700 font-bold">{session.styleCategory || '—'}</span>
+                    <span className="text-emerald-300 font-bold">{session.styleCategory || '—'}</span>
                   </div>
                 </div>
 
                 <div className="space-y-1 text-[9.5px]">
                   <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Typische Muster nach Abschnitten:</span>
                   
-                  <div className="grid grid-cols-1 gap-1.5 bg-white border border-slate-200 rounded p-2 text-[9px] text-slate-700">
+                  <div className="grid grid-cols-1 gap-1.5 bg-slate-900 border border-slate-700 rounded p-2 text-[9px] text-slate-300">
                     <div className="flex gap-1.5 items-start">
                       <span className="text-slate-400 font-bold min-w-[32px]">Beginn:</span>
                       <span className="italic">{secAnalysis.intro}</span>
@@ -1304,9 +1304,8 @@ function getSectionAnalysis(session: AlsFileStats) {
     else if (avgVel < 105) velocityDesc = "Ausgewogene Spieldynamik (Mezzo-Forte)";
     else velocityDesc = "Energetischer, kräftiger Ausbruch (Forte)";
     
-    const pitchNotes = nList.map(n => n.key);
-    const minPitch = Math.min(...pitchNotes);
-    const maxPitch = Math.max(...pitchNotes);
+    const minPitch = nList.reduce((a, n) => Math.min(a, n.key), Infinity);
+    const maxPitch = nList.reduce((a, n) => Math.max(a, n.key), -Infinity);
     
     let pitchDesc = "Mittellage";
     if (maxPitch - minPitch > 24) {
