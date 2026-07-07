@@ -36,7 +36,7 @@ export interface AlsFileStats {
   swingFactor16th: number; // Errechneter Swingfaktor (z.B. 50% bis 70%)
   notes: MidiNote[];
   estimatedBpm?: number; // Gefundener realer Puls (BPM)
-  styleCategory?: "Melodisch" | "Harmonisch" | "Rhythmisch";
+  styleCategory?: "Melodisch" | "Harmonisch";
   structureCategory?: "Improvisation" | "Klassisches Stück";
   estimatedKey?: string; // Tonart (z.B. "C Major", "A Minor")
   bpmSegments?: BpmSegment[];

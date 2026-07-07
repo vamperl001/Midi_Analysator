@@ -988,10 +988,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     <span className="text-indigo-600">Harmonisch:</span>
                     <span>{sortedSessions.filter(s => s.styleCategory === "Harmonisch").length} S.</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-amber-600">Rhythmisch:</span>
-                    <span>{sortedSessions.filter(s => s.styleCategory === "Rhythmisch").length} S.</span>
-                  </div>
                 </div>
             ) : (
               <span className="text-sm font-bold text-slate-400 block mt-1">—</span>

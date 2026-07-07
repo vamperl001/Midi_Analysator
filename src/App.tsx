@@ -515,7 +515,7 @@ export default function App() {
     }
 
     const notesCount = sessions.reduce((sum, s) => sum + s.notesCount, 0);
-    const avgTempo = sessions.reduce((sum, s) => sum + s.tempo, 0) / sessionCount;
+    const avgTempo = sessions.reduce((sum, s) => sum + (s.estimatedBpm ?? s.tempo), 0) / sessionCount;
     const avgVelocity = sessions.reduce((sum, s) => sum + s.avgVelocity, 0) / sessionCount;
     const avgDriftMs = sessions.reduce((sum, s) => sum + s.avgDriftMs, 0) / sessionCount;
     const avgSwing = sessions.reduce((sum, s) => sum + s.swingFactor16th, 0) / sessionCount;

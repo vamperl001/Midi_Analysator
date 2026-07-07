@@ -67,16 +67,11 @@ function dateToStr(d: Date): string {
 export function detectKey(notes: MidiNote[]): string {
   if (notes.length === 0) return "Unbekannt";
 
-  // Schlagzeug-Noten (Standard-MIDI-Kit ~Key 24-84) von harmonischer Analyse ausschließen
-  const drumKeyRange = (k: number) => k >= 24 && k <= 84;
-  const melodicNotes = notes.filter(n => !drumKeyRange(n.key));
-  if (melodicNotes.length === 0) return "Percussion";
-  if (melodicNotes.length < notes.length * 0.1) return "Percussion";
-
   // 12 Pitch Classes (C, C#, D, D#, E, F, F#, G, G#, A, A#, H)
   const pitchWeights = new Array(12).fill(0);
-  melodicNotes.forEach(note => {
+  notes.forEach(note => {
     const pc = note.key % 12;
+    // Längere und lautere Noten gewichten wir stärker!
     const weight = Math.max(0.1, note.duration) * (note.velocity / 100);
     if (!isNaN(weight)) {
       pitchWeights[pc] += weight;
@@ -230,10 +225,6 @@ function estimateGridFromNotes(notes: MidiNote[]): number {
   return bestG;
 }
 
-export function estimateGrid(notes: { time: number }[]): number {
-  return estimateGridFromNotes(notes as MidiNote[]);
-}
-
 function regridNotes(notes: MidiNote[], bpm: number, nominalTempo: number): MidiNote[] {
   const bpmRatio = bpm / nominalTempo;
   const msPerBeat = 60000 / bpm;
@@ -259,7 +250,7 @@ export function analyzeSessionMidiStats(
   nominalTempo: number
 ): {
   estimatedBpm: number;
-  styleCategory: "Melodisch" | "Harmonisch" | "Rhythmisch";
+  styleCategory: "Melodisch" | "Harmonisch";
   structureCategory: "Improvisation" | "Klassisches Stück";
   estimatedKey: string;
   notes: MidiNote[];
@@ -312,11 +303,7 @@ export function analyzeSessionMidiStats(
     if (hasOverlap) simultaneousCount++;
   }
   const overlapRatio = limitedNotes.length > 0 ? simultaneousCount / limitedNotes.length : 0;
-  const drumKeyRange = (k: number) => k >= 24 && k <= 84;
-  const drumRatio = adjustedNotes.length > 0
-    ? adjustedNotes.filter(n => drumKeyRange(n.key)).length / adjustedNotes.length
-    : 0;
-  const styleCategory = drumRatio > 0.6 ? "Rhythmisch" : overlapRatio > 0.45 ? "Harmonisch" : "Melodisch";
+  const styleCategory = overlapRatio > 0.45 ? "Harmonisch" : "Melodisch";
 
   const velocities = limitedNotes.map(n => n.velocity);
   const meanVel = velocities.reduce((sum, v) => sum + v, 0) / (velocities.length || 1);
