@@ -595,7 +595,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
             </div>
           </div>
           <p className="text-[10px] text-slate-400 max-w-[120px] sm:text-right leading-tight">
-            Verschiebt sich im Juni zu laid-back Lo-Fi.
+            Swing-Entwicklung über das Halbjahr.
           </p>
         </div>
       </div>
@@ -699,7 +699,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
 
         <div className="mt-4 p-2.5 bg-slate-800/60 border border-slate-600 rounded text-slate-300 text-[10px] font-mono flex items-start gap-2">
           <span>💡</span>
-          <span>Drums (MIDI 36-50) weisen meist eine markante Verzögerung auf (Snares/Claps für laid-back Groove).</span>
+          <span>Tiefe Noten (C2–C3) zeigen oft einen stabileren Groove als hohe Lagen.</span>
         </div>
       </div>
 
