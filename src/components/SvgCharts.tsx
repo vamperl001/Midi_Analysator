@@ -292,8 +292,9 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
     }));
 
     allNotes.forEach(note => {
-      // nearestGrid ist ein Vielfaches von 0.25 (16tel Note).
-      const step = Math.round(note.nearestGrid * 4) % 16;
+      // Position im Takt aus roher Zeit (nicht aus nearestGrid, das vom dynamischen Grid abhängt)
+      const posInBar = note.time % 4;
+      const step = Math.round(posInBar * 4) % 16;
       if (step >= 0 && step < 16) {
         grid[step].sumVelocity += note.velocity;
         grid[step].noteCount += 1;
@@ -318,7 +319,8 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
     }));
 
     allNotes.forEach(note => {
-      const step = Math.round(note.nearestGrid * 4) % 16;
+      const posInBar = note.time % 4;
+      const step = Math.round(posInBar * 4) % 16;
       if (step >= 0 && step < 16) {
         grid[step].sumDrift += note.gridOffsetMs;
         grid[step].noteCount += 1;
