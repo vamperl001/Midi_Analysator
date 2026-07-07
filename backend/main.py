@@ -1,5 +1,4 @@
 import json
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +10,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import supabase_db
+import postgres_db
+from repository.sqlite_repo import SqliteSessionRepository
 
 STATIC_DIR = Path("/app/static")
 AXINIO_BASE = "http://host.docker.internal:8081"
@@ -19,59 +19,25 @@ AXINIO_BASE = "http://host.docker.internal:8081"
 app = FastAPI(title="Midi Analyse Backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ---------- SQLite (fallback) ----------
+# ---------- SQLite Repository ----------
 
 DB_DIR = Path("/data")
 DB_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DB_DIR / "sessions.db"
 
-
-def get_db():
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+repo = SqliteSessionRepository(str(DB_PATH))
 
 
 def init_sqlite():
-    conn = get_db()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id TEXT PRIMARY KEY,
-            file_name TEXT UNIQUE NOT NULL,
-            file_size INTEGER DEFAULT 0,
-            file_type TEXT DEFAULT 'midi',
-            session_date TEXT,
-            tempo REAL DEFAULT 120,
-            estimated_bpm REAL DEFAULT 120,
-            notes_count INTEGER DEFAULT 0,
-            avg_velocity REAL DEFAULT 0,
-            avg_drift_ms REAL DEFAULT 0,
-            avg_swing REAL DEFAULT 50,
-            estimated_key TEXT DEFAULT 'Unbekannt',
-            style_category TEXT DEFAULT 'Melodisch',
-            structure_category TEXT DEFAULT 'Klassisches Stück',
-            focus_score REAL DEFAULT 0,
-            teacher_student_json TEXT DEFAULT '{}',
-            velocity_spread_json TEXT DEFAULT '{}',
-            polyphony_json TEXT DEFAULT '{}',
-            sliding_tempo_json TEXT DEFAULT '[]',
-            pedal_analysis_json TEXT DEFAULT '{}',
-            notes_json TEXT DEFAULT '[]',
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at)")
-    conn.commit()
-    conn.close()
+    repo.init_db()
 
 
 # ---------- Init ----------
 
 @app.on_event("startup")
 async def startup():
-    if supabase_db._USE_SUPABASE:
-        await supabase_db.init_db()
+    if postgres_db._USE_SUPABASE:
+        await postgres_db.init_db()
     else:
         init_sqlite()
 
@@ -120,122 +86,49 @@ def health():
 
 
 @app.get("/sessions")
-async def list_sessions():
-    if supabase_db._USE_SUPABASE:
-        return await supabase_db.list_sessions()
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT id, file_name, file_size, file_type, session_date, tempo,
-               estimated_bpm, notes_count, avg_velocity, avg_drift_ms, avg_swing,
-               estimated_key, style_category, structure_category, focus_score,
-               velocity_spread_json, polyphony_json, created_at
-        FROM sessions ORDER BY created_at DESC
-    """).fetchall()
-    conn.close()
-    result = []
-    for r in rows:
-        d = dict(r)
-        result.append({
-            "id": d["id"],
-            "fileName": d["file_name"],
-            "date": d["session_date"] or "",
-            "tempo": d["tempo"],
-            "estimatedBpm": d["estimated_bpm"],
-            "notesCount": d["notes_count"],
-            "avgVelocity": d["avg_velocity"],
-            "avgDriftMs": d["avg_drift_ms"],
-            "swingFactor16th": d["avg_swing"],
-            "estimatedKey": d["estimated_key"],
-            "styleCategory": d["style_category"],
-            "structureCategory": d["structure_category"],
-            "focusScore": d["focus_score"],
-            "velocitySpread": json.loads(d["velocity_spread_json"]),
-            "polyphony": json.loads(d["polyphony_json"]),
-            "notes": [],
-            "createdAt": d["created_at"],
-        })
-    return result
+def list_sessions():
+    if postgres_db._USE_SUPABASE:
+        raise HTTPException(503, "Supabase not supported in sync mode")
+    return repo.list_sessions()
 
 
 @app.get("/sessions/count")
 async def session_count():
-    if supabase_db._USE_SUPABASE:
-        rows = await supabase_db.list_sessions()
+    if postgres_db._USE_SUPABASE:
+        rows = await postgres_db.list_sessions()
         return {"count": len(rows)}
-    conn = get_db()
-    row = conn.execute("SELECT COUNT(*) as cnt FROM sessions").fetchone()
-    conn.close()
-    return {"count": row["cnt"]}
+    return {"count": repo.count_sessions()}
+
+
+@app.get("/sessions/chart-data")
+def get_chart_data():
+    return repo.get_chart_data()
 
 
 @app.get("/sessions/{session_id}")
-async def get_session(session_id: str):
-    if supabase_db._USE_SUPABASE:
-        result = await supabase_db.get_session(session_id)
-        if not result:
-            raise HTTPException(404, "Session not found")
-        return result
-    conn = get_db()
-    r = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
-    conn.close()
-    if not r:
+def get_session(session_id: str):
+    if postgres_db._USE_SUPABASE:
+        raise HTTPException(503, "Supabase not supported in sync mode")
+    session = repo.get_session(session_id)
+    if not session:
         raise HTTPException(404, "Session not found")
-    d = dict(r)
-    notes_list = json.loads(d.pop("notes_json", "[]"))
-    return {
-        "id": d["id"],
-        "fileName": d["file_name"],
-        "date": d["session_date"] or "",
-        "tempo": d["tempo"],
-        "estimatedBpm": d["estimated_bpm"],
-        "notesCount": d["notes_count"],
-        "avgVelocity": d["avg_velocity"],
-        "avgDriftMs": d["avg_drift_ms"],
-        "swingFactor16th": d["avg_swing"],
-        "estimatedKey": d["estimated_key"],
-        "styleCategory": d["style_category"],
-        "structureCategory": d["structure_category"],
-        "focusScore": d["focus_score"],
-        "teacherStudentSplit": json.loads(d["teacher_student_json"]),
-        "velocitySpread": json.loads(d["velocity_spread_json"]),
-        "polyphony": json.loads(d["polyphony_json"]),
-        "slidingTempo": json.loads(d["sliding_tempo_json"]),
-        "pedalAnalysis": json.loads(d["pedal_analysis_json"]),
-        "notes": notes_list,
-        "createdAt": d["created_at"],
-    }
+    return session
 
 
 @app.get("/sessions/{session_id}/notes")
-async def get_session_notes(session_id: str):
-    if supabase_db._USE_SUPABASE:
-        result = await supabase_db.get_session_notes(session_id)
-        if not result:
-            raise HTTPException(404, "Session not found")
-        return result
-    conn = get_db()
-    r = conn.execute("SELECT id, notes_json FROM sessions WHERE id = ?", (session_id,)).fetchone()
-    conn.close()
-    if not r:
+def get_session_notes(session_id: str):
+    if postgres_db._USE_SUPABASE:
+        raise HTTPException(503, "Supabase not supported in sync mode")
+    result = repo.get_session_notes(session_id)
+    if not result:
         raise HTTPException(404, "Session not found")
-    notes_list = json.loads(r["notes_json"])
-    return {"id": r["id"], "notes": notes_list}
+    return result
 
 
 @app.post("/sessions")
 async def save_session(payload: SessionPayload):
-    session_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-
-    notes_json = json.dumps([n.model_dump() for n in payload.notes], default=str)
-    ts_json = json.dumps(payload.teacherStudentSplit or {}, default=str)
-    vs_json = json.dumps(payload.velocitySpread or {}, default=str)
-    poly_json = json.dumps(payload.polyphony or {}, default=str)
-    st_json = json.dumps(payload.slidingTempo or [], default=str)
-    pa_json = json.dumps(payload.pedalAnalysis or {}, default=str)
-
-    if supabase_db._USE_SUPABASE:
-        pg_id, created = await supabase_db.save_session(session_id, {
+    if postgres_db._USE_SUPABASE:
+        pg_id, created = await postgres_db.save_session(session_id, {
             "file_name": payload.fileName,
             "session_date": payload.date,
             "tempo": payload.tempo,
@@ -248,83 +141,46 @@ async def save_session(payload: SessionPayload):
             "style_category": payload.styleCategory or "Melodisch",
             "structure_category": payload.structureCategory or "Klassisches Stück",
             "focus_score": payload.focusScore or 0,
-            "teacher_student_json": ts_json,
-            "velocity_spread_json": vs_json,
-            "polyphony_json": poly_json,
-            "sliding_tempo_json": st_json,
-            "pedal_analysis_json": pa_json,
-            "notes_json": notes_json,
-            "created_at": now,
+            "teacher_student_json": json.dumps(payload.teacherStudentSplit or {}, default=str),
+            "velocity_spread_json": json.dumps(payload.velocitySpread or {}, default=str),
+            "polyphony_json": json.dumps(payload.polyphony or {}, default=str),
+            "sliding_tempo_json": json.dumps(payload.slidingTempo or [], default=str),
+            "pedal_analysis_json": json.dumps(payload.pedalAnalysis or {}, default=str),
+            "notes_json": json.dumps([n.model_dump() for n in payload.notes], default=str),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         })
         return {"id": pg_id, "created": created}
 
-    conn = get_db()
-    existing = conn.execute(
-        "SELECT id FROM sessions WHERE file_name = ?", (payload.fileName,)
-    ).fetchone()
-
-    row = (
-        payload.date,
-        payload.tempo,
-        payload.estimatedBpm or payload.tempo,
-        payload.notesCount,
-        payload.avgVelocity,
-        payload.avgDriftMs,
-        payload.swingFactor16th,
-        payload.estimatedKey or "Unbekannt",
-        payload.styleCategory or "Melodisch",
-        payload.structureCategory or "Klassisches Stück",
-        payload.focusScore or 0,
-        ts_json,
-        vs_json,
-        poly_json,
-        st_json,
-        pa_json,
-        notes_json,
-        now,
-    )
-
-    if existing:
-        conn.execute(
-            """UPDATE sessions SET
-                session_date=?, tempo=?, estimated_bpm=?, notes_count=?,
-                avg_velocity=?, avg_drift_ms=?, avg_swing=?, estimated_key=?,
-                style_category=?, structure_category=?, focus_score=?,
-                teacher_student_json=?, velocity_spread_json=?, polyphony_json=?,
-                sliding_tempo_json=?, pedal_analysis_json=?, notes_json=?, created_at=?
-            WHERE file_name = ?""",
-            (*row, payload.fileName),
-        )
-        session_id = existing["id"]
-        created = False
-    else:
-        conn.execute(
-            """INSERT INTO sessions (
-                id, file_name, session_date, tempo, estimated_bpm, notes_count,
-                avg_velocity, avg_drift_ms, avg_swing, estimated_key,
-                style_category, structure_category, focus_score,
-                teacher_student_json, velocity_spread_json, polyphony_json,
-                sliding_tempo_json, pedal_analysis_json, notes_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (session_id, payload.fileName, *row),
-        )
-        created = True
-
-    conn.commit()
-    conn.close()
+    session_id, created = repo.save_session(payload.model_dump())
     return {"id": session_id, "created": created}
 
 
 @app.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    if supabase_db._USE_SUPABASE:
-        await supabase_db.delete_session(session_id)
+    if postgres_db._USE_SUPABASE:
+        await postgres_db.delete_session(session_id)
         return {"deleted": True}
-    conn = get_db()
-    conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-    conn.commit()
-    conn.close()
+    repo.delete_session(session_id)
     return {"deleted": True}
+
+
+# ---------- Schedule ----------
+
+class SchedulePayload(BaseModel):
+    schedule: list[dict] = []
+
+
+@app.get("/schedule")
+@app.get("/api/schedule")
+def get_schedule():
+    return {"schedule": repo.get_schedule()}
+
+
+@app.post("/schedule")
+@app.post("/api/schedule")
+def save_schedule(payload: SchedulePayload):
+    repo.save_schedule(payload.schedule)
+    return {"saved": True}
 
 
 # ---------- Axinio proxy ----------
@@ -337,6 +193,70 @@ async def proxy_axinio(path: str, request: Request):
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.request(request.method, url, headers=headers, content=body)
     return resp.json()
+
+
+# ---------- Upload & Analysis Endpoints ----------
+
+from process_als import process_midi_file, process_band_file, analyze_notes, separate_teacher_student, compute_focus_score, extract_file_datetime, save_to_db
+
+
+@app.post("/api/upload")
+async def upload_session(request: Request, file_name: str = "unknown.als"):
+    """Pure Python processing for .mid/.midi/.band files"""
+    body = await request.body()
+    if not body:
+        raise HTTPException(400, "No file data received")
+    ext = Path(file_name).suffix.lower()
+    try:
+        if ext in ('.mid', '.midi'):
+            result = process_midi_file(body, file_name)
+        elif ext in ('.band', '.zip'):
+            result = process_band_file(body, file_name)
+        else:
+            raise HTTPException(400, f"Unsupported format for server-side: {ext}")
+        sid = save_to_db(str(DB_PATH), result)
+        return {"id": sid, **result}
+    except Exception as e:
+        raise HTTPException(500, f"Processing failed: {e}")
+
+
+@app.post("/api/analyze")
+async def analyze_session(payload: dict):
+    """Receive pre-parsed ALS data from JS, run analysis server-side"""
+    raw_notes = payload.get("notes", [])
+    tempo = payload.get("tempo", 120)
+    file_name = payload.get("fileName", "unknown.als")
+
+    analysis = analyze_notes(raw_notes, tempo)
+    analysis_notes = analysis["notes"]
+
+    date_str, time_str, weekday = extract_file_datetime(file_name)
+    teacher_student = separate_teacher_student(analysis_notes)
+    focus_score = compute_focus_score(analysis_notes, analysis["avgDriftMs"])
+
+    import numpy as np
+    avg_vel = float(np.mean([n["velocity"] for n in raw_notes])) if raw_notes else 0
+
+    result = {
+        "fileName": file_name,
+        "date": date_str,
+        "time": time_str,
+        "weekday": weekday,
+        "tempo": analysis["estimatedBpm"],
+        "notesCount": len(raw_notes),
+        "avgVelocity": round(avg_vel, 1),
+        "avgDriftMs": analysis["avgDriftMs"],
+        "swingFactor16th": analysis["swingFactor16th"],
+        "estimatedKey": analysis["estimatedKey"],
+        "styleCategory": analysis["styleCategory"],
+        "structureCategory": analysis["structureCategory"],
+        "focusScore": focus_score,
+        "teacherStudentSplit": teacher_student,
+        "notes": analysis_notes,
+    }
+
+    sid = save_to_db(str(DB_PATH), result)
+    return {"id": sid, **result}
 
 
 # ---------- Static SPA (catch-all) ----------

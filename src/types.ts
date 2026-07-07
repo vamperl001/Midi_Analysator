@@ -96,3 +96,31 @@ export interface MonthlySummary {
   avgDriftMs: number;
   avgSwing: number;
 }
+
+export interface ChartDataEntry {
+  gridOffsetHistogram: { lower: number; upper: number; count: number }[];
+  gridOffsetBassHistogram: { lower: number; upper: number; count: number }[];
+  gridOffsetTrebleHistogram: { lower: number; upper: number; count: number }[];
+  velocityHistogram: { lower: number; upper: number; count: number }[];
+  noteDensity: { bar: number; count: number }[];
+  keyDistribution: Record<number, number>;
+  sixteenthGrid: {
+    position: number;
+    beat: number;
+    sub: string;
+    avgVelocity: number;
+    avgDrift: number;
+    count: number;
+  }[];
+  stats: {
+    mean: number;
+    std: number;
+    median: number;
+    earlyPercent: number;
+    latePercent: number;
+    tightPercent: number;
+    skewness: number;
+    bassPct: number;
+    totalNotes: number;
+  };
+}

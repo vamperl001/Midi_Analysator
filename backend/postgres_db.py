@@ -1,5 +1,6 @@
 """
-Datenbank-Backend: PostgreSQL (Supabase) via asyncpg, Fallback SQLite.
+Datenbank-Backend: PostgreSQL via asyncpg, Fallback SQLite.
+Ehemals supabase_db.py — der Name postgres_db.py ist präziser, da kein Supabase-spezifischer Code.
 """
 
 import json

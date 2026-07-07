@@ -14,7 +14,7 @@ import {
   ReferenceLine
 } from 'recharts';
 import { AlsFileStats } from '../types';
-import { chart as chartTheme, accent, bg } from '../theme';
+import { chart as chartTheme, accent, bg, text as textTheme } from '../theme';
 import { TrendingUp, Award, Zap, Activity, Layers, Sliders, Sparkles } from 'lucide-react';
 import { CustomResponsiveContainer } from './CustomResponsiveContainer';
 
@@ -122,7 +122,7 @@ export const ProgressionChart: React.FC<ProgressionChartProps> = ({ loadedFiles 
       description: "Hier siehst du, wie sich deine mittlere Timing-Ungenauigkeit über das Halbjahr entwickelt. Ein sinkender Drift-Wert signalisiert höhere Spiel-Präzision!",
       dataKey: "drift",
       unit: "ms",
-      color: bg.darker,
+      color: textTheme.bright,
       label: "Timing Drift",
       referenceLines: [
         { y: 9, stroke: accent.emerald, label: "Gold-Standard (<9ms)" },

@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { parseAlsFile, convertToCsv, generateSqlScript, analyzeSessionMidiStats, separateTeacherStudent, computeFocusScore } from './alsParser';
-import { AlsFileStats, ScheduleEntry } from './types';
+import { AlsFileStats, ChartDataEntry, ScheduleEntry } from './types';
 import { SvgCharts } from './components/SvgCharts';
 import { pythonScriptText } from './pythonScriptText';
 import { CalendarView } from './components/CalendarView';
@@ -42,7 +42,7 @@ import { AdvancedCharts } from './components/AdvancedCharts';
 import { SessionComparison } from './components/SessionComparison';
 import { CreativeVisualizer } from './components/CreativeVisualizer';
 import { StudentProgress } from './components/StudentProgress';
-import { saveSessionToCloud, loadSessionsFromCloud, deleteSessionFromCloud, loadSessionNotesFromCloud } from './firebase';
+import { saveSessionToCloud, loadSessionsFromCloud, deleteSessionFromCloud, loadSessionNotesFromCloud } from './backendApi';
 import { enrichSessionWithAdvancedMetrics } from './medientechnikAnalysis';
 import { CountUp } from './components/CountUp';
 
@@ -83,34 +83,51 @@ export default function App() {
   const [minVelocity, setMinVelocity] = useState<number>(0);
   const [maxVelocity, setMaxVelocity] = useState<number>(127);
 
+  // Serverseitig berechnete Chart-Daten (Histogramme etc.)
+  const [chartData, setChartData] = useState<Record<string, ChartDataEntry> | null>(null);
+
   // --- Cloud Database Sync ---
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
   const [cloudSyncMessage, setCloudSyncMessage] = useState<string | null>(null);
   const [isCloudSaving, setIsCloudSaving] = useState<string | null>(null); // Dateiname, der gerade gespeichert wird
-  // Automatisch gespeicherte HAW-Bewerbungssitzungen beim Laden laden (Offline-/Online-Synchronisation)
+  // Sessions aus DB laden (Noten werden on-demand geladen)
   useEffect(() => {
     async function loadCloudSessions() {
       setIsCloudSyncing(true);
-      setCloudSyncMessage("📡 Verbinde mit SQLite-Datenbank...");
+      setCloudSyncMessage("📡 Lade Sitzungen aus DB...");
       try {
         const cloudSessions = await loadSessionsFromCloud();
         if (cloudSessions.length > 0) {
           const enriched = cloudSessions.map(enrichSessionWithAdvancedMetrics);
           setLoadedFiles(enriched);
-          setCloudSyncMessage(`📂 ${cloudSessions.length} Sitzungen erfolgreich geladen! (Dauerhaft in der Datenbank hinterlegt)`);
+          setCloudSyncMessage(`📂 ${cloudSessions.length} Sitzungen geladen. Klick auf eine Session oder \"ALLE AUS DB LADEN\" für Noten.`);
         } else {
-          setCloudSyncMessage("ℹ️ Keine Sitzungen in der Datenbank gefunden. Lade Dateien hoch, um sie automatisch zu speichern.");
+          setCloudSyncMessage("ℹ️ Keine Sitzungen in der Datenbank.");
         }
       } catch (err: any) {
-        console.error("Fehler beim Laden aus der Datenbank:", err);
-        setCloudSyncMessage("⚠️ Datenbank-Laden fehlgeschlagen. Lokale RAM-Speicherung aktiv.");
+        console.error("Fehler beim Laden:", err);
+        setCloudSyncMessage("⚠️ DB-Laden fehlgeschlagen.");
       } finally {
         setIsCloudSyncing(false);
-        // Nachricht nach 6 Sekunden ausblenden
         setTimeout(() => setCloudSyncMessage(null), 6000);
       }
     }
     loadCloudSessions();
+  }, []);
+
+  // Chart-Daten im Hintergrund laden (serverseitig berechnete Histogramme)
+  useEffect(() => {
+    async function loadChartData() {
+      try {
+        const res = await fetch('/sessions/chart-data');
+        if (!res.ok) return;
+        const data: Record<string, ChartDataEntry> = await res.json();
+        setChartData(data);
+      } catch (e) {
+        console.warn('Chart data load failed:', e);
+      }
+    }
+    loadChartData();
   }, []);
 
   // Lazy-load notes and heavy fields when a specific session is selected
@@ -126,14 +143,17 @@ export default function App() {
           const copy = [...prev];
           const idx = copy.findIndex(f => f.cloudDocId === targetSession.cloudDocId);
           if (idx !== -1) {
-            copy[idx] = {
+            const updated = {
               ...copy[idx],
               notes: sessionData.notes,
               notesCount: sessionData.notes.length,
               teacherStudentSplit: sessionData.teacherStudentSplit,
+              velocitySpread: sessionData.velocitySpread,
+              polyphony: sessionData.polyphony,
               slidingTempo: sessionData.slidingTempo,
               pedalAnalysis: sessionData.pedalAnalysis,
             };
+            copy[idx] = enrichSessionWithAdvancedMetrics(updated);
           }
           return copy;
         });
@@ -255,10 +275,53 @@ export default function App() {
       return saved ? JSON.parse(saved) : defaultSchedule;
     } catch { return defaultSchedule; }
   });
+  // Load schedule from backend on mount
+  useEffect(() => {
+    fetch('/api/schedule')
+      .then(r => r.json())
+      .then(data => {
+        if (data.schedule?.length) {
+          setSchedule(data.schedule);
+          localStorage.setItem('schedule', JSON.stringify(data.schedule));
+        }
+      })
+      .catch(() => {/* use localStorage */});
+  }, []);
   const handleScheduleChange = (s: ScheduleEntry[]) => {
     setSchedule(s);
     localStorage.setItem('schedule', JSON.stringify(s));
+    fetch('/api/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule: s }),
+    }).catch(() => {/* offline */});
   };
+
+  // Session-Zeiten aus dem Stundenplan aktualisieren (weil ALS-Dateinamen keine Uhrzeit enthalten)
+  useEffect(() => {
+    if (!schedule.length || !loadedFiles.length) return;
+    setLoadedFiles(prev => {
+      let changed = false;
+      const copy = prev.map(s => {
+        if (s.time !== '14:00') return s;
+        const sameWday = schedule.filter(e => e.weekday === s.weekday && e.studentName);
+        if (!sameWday.length) return s;
+        // nächsten Slot um 14:00 finden
+        const defMin = 14 * 60;
+        const match = sameWday.reduce((best, e) => {
+          const [h, m] = e.time.split(':').map(Number);
+          const dist = Math.abs(h * 60 + m - defMin);
+          return dist < best.dist ? { entry: e, dist } : best;
+        }, { entry: sameWday[0], dist: Infinity }).entry;
+        if (match.time !== s.time) {
+          changed = true;
+          return { ...s, time: match.time };
+        }
+        return s;
+      });
+      return changed ? copy : prev;
+    });
+  }, [schedule, loadedFiles.length]);
 
   // --- Vergleichsmodus (Compare Mode) ---
   const [compareMode, setCompareMode] = useState<boolean>(false);
@@ -319,6 +382,36 @@ export default function App() {
 
   const [processingProgress, setProcessingProgress] = useState<string | null>(null);
 
+  function buildSessionFromServerResult(sr: any): AlsFileStats {
+    return {
+      fileName: sr.fileName,
+      date: sr.date,
+      time: sr.time ?? '14:00',
+      weekday: sr.weekday ?? 0,
+      tempo: sr.tempo ?? 120,
+      notesCount: sr.notesCount ?? 0,
+      avgVelocity: sr.avgVelocity ?? 0,
+      avgDriftMs: sr.avgDriftMs ?? 0,
+      swingFactor16th: sr.swingFactor16th ?? 50,
+      estimatedKey: sr.estimatedKey ?? 'Unbekannt',
+      styleCategory: sr.styleCategory ?? 'Melodisch',
+      structureCategory: sr.structureCategory ?? 'Klassisches Stück',
+      focusScore: sr.focusScore,
+      teacherStudentSplit: sr.teacherStudentSplit,
+      notes: (sr.notes ?? []).map((n: any) => ({
+        id: `${sr.fileName}-${n.time}-${n.key}`,
+        key: n.key,
+        noteName: n.noteName ?? '',
+        velocity: n.velocity ?? 100,
+        time: n.time ?? 0,
+        gridOffset: n.gridOffset ?? 0,
+        gridOffsetMs: n.gridOffsetMs ?? 0,
+        nearestGrid: n.nearestGrid ?? 0,
+        trackName: n.trackName ?? '',
+      })),
+    };
+  }
+
   const processUploadedFiles = async (files: FileList) => {
     setIsParsing(true);
     setErrorString(null);
@@ -339,7 +432,48 @@ export default function App() {
         continue;
       }
       try {
-        setProcessingProgress(`Lese ${i + 1}/${sortedFiles.length}: ${file.name}`);
+        // .mid/.midi → pure Python server-side (schnell)
+        if (ext === 'mid' || ext === 'midi') {
+          setProcessingProgress(`Server-Verarbeitung ${i + 1}/${sortedFiles.length}: ${file.name}`);
+          const buf = await file.arrayBuffer();
+          const res = await fetch(`/api/upload?file_name=${encodeURIComponent(file.name)}`, {
+            method: 'POST',
+            body: buf,
+          });
+          if (res.ok) {
+            const serverResult = await res.json();
+            const session = buildSessionFromServerResult(serverResult);
+            const enriched = enrichSessionWithAdvancedMetrics(session);
+            parsedSessions.push(enriched);
+            continue;
+          }
+        }
+
+        // .als → JS parse (funktioniert) + Server-Analyse
+        if (ext === 'als') {
+          setProcessingProgress(`Parse ${i + 1}/${sortedFiles.length}: ${file.name} (clientseitig)...`);
+          const raw = await parseAlsFile(file);
+          setProcessingProgress(`Analyse ${i + 1}/${sortedFiles.length}: ${file.name} (Server)...`);
+          const res = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: file.name,
+              notes: raw.notes,
+              tempo: raw.tempo,
+            }),
+          });
+          if (res.ok) {
+            const serverResult = await res.json();
+            const session = buildSessionFromServerResult(serverResult);
+            const enriched = enrichSessionWithAdvancedMetrics(session);
+            parsedSessions.push(enriched);
+            continue;
+          }
+        }
+
+        // Fallback: Komplett client-seitig (.band, .zip, audio)
+        setProcessingProgress(`Lese ${i + 1}/${sortedFiles.length}: ${file.name} (clientseitig)...`);
         const raw = await parseAlsFile(file);
         await new Promise(r => setTimeout(r, 0));
 
@@ -488,7 +622,8 @@ export default function App() {
   // --- Filter sessions & their notes by Velocity ---
   const filteredViewSessions = useMemo(() => {
     return activeViewSessions.map(session => {
-      const matchedNotes = session.notes.filter(note => note.velocity >= minVelocity && note.velocity <= maxVelocity);
+      const enriched = session.notes.length > 0 ? enrichSessionWithAdvancedMetrics(session) : session;
+      const matchedNotes = enriched.notes.filter(note => note.velocity >= minVelocity && note.velocity <= maxVelocity);
       const avgVelocity = matchedNotes.length > 0 
         ? Math.round(matchedNotes.reduce((sum, n) => sum + n.velocity, 0) / matchedNotes.length) 
         : 0;
@@ -496,9 +631,9 @@ export default function App() {
         ? matchedNotes.reduce((sum, n) => sum + n.gridOffsetMs, 0) / matchedNotes.length 
         : 0;
       return {
-        ...session,
+        ...enriched,
         notes: matchedNotes,
-        notesCount: matchedNotes.length,
+        notesCount: enriched.notes.length > 0 ? matchedNotes.length : enriched.notesCount,
         avgVelocity,
         avgDriftMs
       };
@@ -727,7 +862,7 @@ export default function App() {
                   <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
                   02 // STEUERUNG & FILTER
                 </h2>
-                {loadedFiles.length > 0 && (
+                {loadedFiles.length > 0 && false && ( // ausgeblendet
                   <button 
                     onClick={() => { setLoadedFiles([]); setSelectedFileIdx(null); setSelectedMonth("ALL"); setCompareMode(false); setComparedIndices([]); }}
                     className="text-[10px] text-red-400 hover:text-red-300 font-mono flex items-center gap-1 cursor-pointer underline"
@@ -958,60 +1093,12 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {/* Alle Daten aus DB laden */}
-                  {loadedFiles.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-slate-700/50 flex flex-col gap-2">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
-                        <button
-                          id="btn-load-all-cloud"
-                          onClick={async () => {
-                            setIsCloudSyncing(true);
-                            setCloudSyncMessage("📡 Lade alle Sessions nacheinander...");
-                            const { loadSessionNotesFromCloud } = await import('./firebase');
-                            let loaded = 0;
-                            const total = loadedFiles.filter(s => s.cloudDocId && s.notes.length === 0).length;
-                            if (total === 0) {
-                              setCloudSyncMessage("✓ Alle Sessions bereits geladen.");
-                              setTimeout(() => setCloudSyncMessage(null), 2000);
-                              setIsCloudSyncing(false);
-                              return;
-                            }
-                            for (const session of loadedFiles) {
-                              if (!session.cloudDocId || session.notes.length > 0) continue;
-                              try {
-                                const sessionData = await loadSessionNotesFromCloud(session.cloudDocId);
-                                setLoadedFiles(prev => {
-                                  const copy = [...prev];
-                                  const idx = copy.findIndex(s => s.cloudDocId === session.cloudDocId);
-                                  if (idx !== -1) {
-                                    copy[idx] = {
-                                      ...copy[idx],
-                                      notes: sessionData.notes,
-                                      notesCount: sessionData.notes.length,
-                                      teacherStudentSplit: sessionData.teacherStudentSplit,
-                                      slidingTempo: sessionData.slidingTempo,
-                                      pedalAnalysis: sessionData.pedalAnalysis,
-                                    };
-                                  }
-                                  return copy;
-                                });
-                                loaded++;
-                                setCloudSyncMessage(`📡 Lade Sessions... ${loaded}/${total}`);
-                              } catch (err) {
-                                console.warn(`Fehler bei ${session.fileName}:`, err);
-                              }
-                            }
-                            setCloudSyncMessage(`✓ ${loaded} Sessions vollständig geladen!`);
-                            setTimeout(() => setCloudSyncMessage(null), 4000);
-                            setIsCloudSyncing(false);
-                          }}
-                          disabled={isCloudSyncing}
-                          className="w-full h-9 bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-[10px] font-bold px-2 rounded border border-indigo-500/50 transition-all shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
-                        >
-                          <Database className="w-3.5 h-3.5" />
-                          ALLE AUS DB LADEN ({loadedFiles.filter(s => s.cloudDocId && s.notes.length === 0).length} fehlen)
-                        </button>
-                      </div>
+                  {/* Hinweis bei leeren Noten */}
+                  {loadedFiles.length > 0 && loadedFiles.every(s => s.notes.length === 0) && (
+                    <div className="mt-2 pt-2 border-t border-slate-700/50 text-center">
+                      <span className="text-[10px] text-slate-500 italic font-mono">
+                        💡 Klick auf eine Session für Detail-Daten (Noten, Charts)
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1243,7 +1330,7 @@ export default function App() {
                               <CloudUpload className="w-3.5 h-3.5 shrink-0" />
                               <span>☁️ In DB sichern</span>
                             </button>
-                          ) : (
+                          ) : false && ( // ausgeblendet
                             <button
                               onClick={() => handleDeleteFromCloud(filteredViewSessions[0])}
                               className="bg-slate-800 hover:bg-red-900/40 text-red-400 hover:text-red-300 border border-slate-600 hover:border-red-500/50 text-xs font-mono px-3.5 py-2.5 rounded transition-all flex items-center gap-1.5 cursor-pointer"
@@ -1263,6 +1350,7 @@ export default function App() {
                     data={filteredViewSessions} 
                     selectedNoteKey={selectedNoteKey} 
                     setSelectedNoteKey={setSelectedNoteKey} 
+                    chartData={chartData ?? undefined}
                   />
 
                   {/* Erweiterte grafische Auswertungen */}

@@ -154,6 +154,7 @@ Phase 1 (Google AI Studio): dateiName, datum, tempo, noten (roh)
 Phase 2 (Firebase):         + geschaetztesBpm, driftMs, swing
 Phase 3 (SQLite):           + velocitySpread, polyphonie, focusScore
 Phase 4 (Erweitert):        + teacherStudentSplit, slidingTempo, pedalAnalyse
+Phase 5 (Architektur):      + Repository-Layer, backendApi, postgres_db
 ```
 
 ---
@@ -173,13 +174,25 @@ v2: Firebase + React SPA
     │  SPA    │    │ Firestore│
     └─────────┘    └──────────┘
 
-v3: FastAPI + SQLite (aktuell)
+v3: FastAPI + SQLite (initial)
     ┌─────────┐    ┌────────────┐    ┌───────┐
     │ Browser │───▶│ FastAPI    │───▶│SQLite │
     │  SPA    │    │ :80 + API  │    │/data/ │
     └─────────┘    │ + Static   │    └───────┘
                    │ + Axinio   │
                    └────────────┘
+
+v4: FastAPI + Repository Layer (Juli 2026)
+    ┌─────────┐    ┌──────────────────┐    ┌───────────┐
+    │ Browser │───▶│ FastAPI (Router) │───▶│ Repository│
+    │  SPA    │    │ main.py (schlank) │   │ sqlite.py │
+    │ Nur     │    │                  │    └─────┬─────┘
+    │Darstellung│   │ + Repository    │          │
+    └─────────┘    │ + postgres_db.py │          ▼
+                   │ + Analysis Engine│    ┌───────────┐
+                   │ + Axinio-Proxy   │    │   SQLite  │
+                   └──────────────────┘    │ /data/    │
+                                           └───────────┘
 ```
 
 ---
@@ -199,6 +212,17 @@ v3: FastAPI + SQLite (aktuell)
 ### Progressive Batch-Loading
 - "ALLE AUS DB LADEN" lädt Sessions einzeln statt in einem Request
 - Verhindert Timeout bei großen Datenmengen
+
+### Architektur-Migration (Phase 5, Juli 2026)
+Nach einem halben Jahr Betrieb wurde die Architektur bereinigt:
+
+- **Repository-Pattern:** Sämtliches SQL aus `main.py` in `backend/repository/sqlite_repo.py` extrahiert → `main.py` ist jetzt ein reiner Router (219 statt 486 Zeilen)
+- **Namensbereinigung:** `firebase.ts` → `backendApi.ts` (enthielt nie Firebase-Code), `supabase_db.py` → `postgres_db.py` (präziserer Name)
+- **Analyse-Isolation:** Jitter-Berechnung aus `CreativeVisualizer.tsx` in `medientechnikAnalysis.ts` verschoben (`computeJitterMetrics()`)
+- **ARCHITECTUR.md** erstellt: dokumentiert IST-Zustand, bekannte Verstöße und Migrationsstrategie
+- **roadmap.md:** gestaffelter Fahrplan in 4 Phasen (Quick Wins → Repository → Backend-Analyse → Tests)
+
+Die Migration folgt dem Prinzip: erst isolieren, dann verschieben. Keine Funktionsänderung, nur strukturelle Verbesserung.
 
 ---
 
@@ -262,14 +286,22 @@ Hard Refresh (Strg+F5)
 
 ## 8. Ausblick
 
-### Kurzfristig
+### Phase 2 (Repository & Analyse-Split)
+- SQL-Repository auf `postgres_db.py` ausweiten (aktuell nur SQLite)
+- `process_als.py` in Module aufteilen: `analysis/timing.py`, `analysis/swing.py`, etc.
+- Analyse-Module einzeln testbar machen (pytest)
+
+### Phase 3 (Analyse komplett ins Backend)
+- `analyzeSessionMidiStats()` (TypeScript) durch API-Aufruf ersetzen
+- `medientechnikAnalysis.ts` durch Backend-Endpoint ersetzen
+- `alsParser.ts` auf reines Parsing reduzieren
+- KDE/Jitter aus React-Komponenten in Backend-API verschieben
+
+### Phase 4 (Feinschliff)
 - Grid dynamisch aus Notenabstand ableiten (32tel/Triolen-Unterstützung)
 - Skalen-Klassifikation für Drums finalisieren
-- Auto-Save entfernen, Daten statisch halten
-
-### Mittelfristig
-- .band-Import vom iPad final beheben
-- Fehlende 3 Tage nachimportieren
+- Unittests für Analyse-Module (pytest) + Parser-Tests (vitest)
+- CI/CD: GitHub Actions für Docker-Build
 
 ### Langfristig
 - **RAG-System:** MIDI-Daten + OneNote-Notizen + Unterrichtsmitschnitte
@@ -283,22 +315,32 @@ Hard Refresh (Strg+F5)
 
 ```
 /
+├── ARCHITECTUR.md               # Architekturregeln + Migrationsstrategie
 ├── src/
 │   ├── App.tsx                  # Hauptkomponente, State-Management
-│   ├── alsParser.ts             # ALS/MIDI/Band-Parser + Metriken
-│   ├── firebase.ts              # REST-API-Client (fetch)
+│   ├── alsParser.ts             # ALS/MIDI/Band-Parser (⚠️ enthält noch Analyse)
+│   ├── medientechnikAnalysis.ts # Advanced Metrics + Jitter
+│   ├── backendApi.ts            # REST-API-Client (ehem. firebase.ts)
 │   ├── theme.ts                 # Zentrale Farbkonstanten
+│   ├── types.ts                 # TypeScript-Datenmodelle
+│   ├── pythonScriptText.ts      # Eingebetteter Python-Code
 │   └── components/
+│       ├── SvgCharts.tsx         # SVG-Charts (⚠️ enthält KDE)
 │       ├── AdvancedCharts.tsx    # Heatmaps, Histogramme
-│       ├── CalendarView.tsx      # Kalender-Übersicht
 │       ├── ProgressionChart.tsx  # Metrik-Entwicklung über Zeit
+│       ├── CreativeVisualizer.tsx# Jitter via medientechnikAnalysis
+│       ├── CalendarView.tsx      # Kalender-Übersicht
 │       ├── SessionComparison.tsx # Side-by-Side Vergleich
-│       ├── SvgCharts.tsx         # Benutzerdefinierte SVG-Charts
-│       ├── CreativeVisualizer.tsx# Kreativ-Visualisierung
-│       └── StudentProgress.tsx   # Einzelschüler-Ansicht
+│       ├── StudentProgress.tsx   # Einzelschüler-Ansicht
+│       ├── CountUp.tsx           # Animierter Zähler
+│       └── CustomResponsiveContainer.tsx
 ├── backend/
-│   ├── main.py                  # FastAPI-App, Routing, Axinio-Proxy
-│   ├── supabase_db.py           # PostgreSQL-Zugriff (optional)
+│   ├── main.py                  # FastAPI-Router (kein SQL mehr)
+│   ├── repository/
+│   │   ├── __init__.py
+│   │   └── sqlite_repo.py       # Repository-Layer (isoliert SQL)
+│   ├── process_als.py           # Analyse-Engine (Python)
+│   ├── postgres_db.py           # PostgreSQL-Zugriff (optional)
 │   ├── config.py                # DB-Konfiguration
 │   └── requirements.txt
 ├── Dockerfile                   # Multi-Stage-Build
@@ -318,8 +360,11 @@ Hard Refresh (Strg+F5)
 | **k-means (k=2)** | Clustering-Algorithmus, teilt Daten in zwei Gruppen |
 | **MIDI** | Musical Instrument Digital Interface — digitales Notenformat |
 | **Recharts** | React-Bibliothek für responsive Diagramme |
+| **Repository Pattern** | Isoliert Datenbankzugriffe von der Geschäftslogik |
 | **SPA** | Single Page Application — Client-seitig gerenderte Web-App |
+| **SQLite** | Eingebettete SQL-Datenbank, dateibasiert, kein Server nötig |
 | **Vite** | Moderner Build-Tool für JavaScript/TypeScript |
+| **WAL-Mode** | Write-Ahead Logging — verbessert SQLite-Leseperformance |
 
 ---
 

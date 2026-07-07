@@ -367,15 +367,43 @@ export function analyzeSustainPedal(
 import { AlsFileStats } from "./types";
 
 /**
+ * 5. JITTER-METRIKEN (Max Drift, Standardabweichung, Successive-Difference-Jitter)
+ * Berechnet zeitliche Stabilität einer Performance.
+ */
+export interface JitterMetrics {
+  maxDrift: number;
+  avgDrift: number;
+  stdDev: number;
+  jitter: number;
+}
+
+export function computeJitterMetrics(notes: MidiNote[]): JitterMetrics {
+  if (notes.length === 0) {
+    return { maxDrift: 0, avgDrift: 0, stdDev: 0, jitter: 0 };
+  }
+  const drifts = notes.map(n => Math.abs(n.gridOffsetMs));
+  const maxDrift = drifts.reduce((a, d) => Math.max(a, d), 0);
+  const avg = drifts.reduce((s, d) => s + d, 0) / drifts.length;
+  const variance = drifts.reduce((s, d) => s + Math.pow(d - avg, 2), 0) / drifts.length;
+  const stdDev = Math.sqrt(variance);
+  let diffSum = 0;
+  for (let i = 1; i < drifts.length; i++) {
+    diffSum += Math.abs(drifts[i] - drifts[i - 1]);
+  }
+  const jitter = drifts.length > 1 ? diffSum / (drifts.length - 1) : 0;
+  return { maxDrift, avgDrift: avg, stdDev, jitter };
+}
+
+/**
  * Zentraler Wrapper, um eine Sitzung (AlsFileStats) in Echtzeit mit
  * allen medientechnischen Analysewerten anzureichern, falls diese noch nicht existieren.
  */
 export function enrichSessionWithAdvancedMetrics(session: AlsFileStats): AlsFileStats {
-  if (session.velocitySpread && session.polyphony && session.slidingTempo && session.pedalAnalysis) {
-    return session; // Bereits angereichert
-  }
-
   const notes = session.notes || [];
+  if (notes.length === 0) return session;
+  if (session.velocitySpread && session.polyphony && session.slidingTempo && session.pedalAnalysis) {
+    return session;
+  }
   const nominalTempo = session.tempo || 120;
   const overallBpm = session.estimatedBpm || session.tempo || 120;
   const avgDriftMs = session.avgDriftMs || 0;

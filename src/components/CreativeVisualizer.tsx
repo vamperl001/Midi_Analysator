@@ -20,6 +20,7 @@ import {
   Workflow
 } from "lucide-react";
 import { AlsFileStats, MidiNote } from "../types";
+import { computeJitterMetrics } from "../medientechnikAnalysis";
 
 interface CreativeVisualizerProps {
   loadedFiles: AlsFileStats[];
@@ -42,6 +43,7 @@ export const CreativeVisualizer: React.FC<CreativeVisualizerProps> = ({
   const [playheadBeats, setPlayheadBeats] = useState<number>(0);
   const [activeFrequencies, setActiveFrequencies] = useState<{ freq: number; velocity: number; id: string }[]>([]);
   const [canvasFps, setCanvasFps] = useState<number>(60);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [statsSummary, setStatsSummary] = useState({ maxDrift: 0, stdDev: 0, jitter: 0 });
 
   // --- REFS ---
@@ -67,6 +69,7 @@ export const CreativeVisualizer: React.FC<CreativeVisualizerProps> = ({
   const delayFeedbackRef = useRef<number>(delayFeedback);
   const activeFileRef = useRef<AlsFileStats | null>(null);
   const playheadSpanRef = useRef<HTMLSpanElement | null>(null);
+  const playbackSpeedRef = useRef<number>(playbackSpeed);
 
   // Sync refs with state changes
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
@@ -78,6 +81,7 @@ export const CreativeVisualizer: React.FC<CreativeVisualizerProps> = ({
   useEffect(() => { cutoffFreqRef.current = cutoffFreq; }, [cutoffFreq]);
   useEffect(() => { delayTimeRef.current = delayTime; }, [delayTime]);
   useEffect(() => { delayFeedbackRef.current = delayFeedback; }, [delayFeedback]);
+  useEffect(() => { playbackSpeedRef.current = playbackSpeed; }, [playbackSpeed]);
 
   // Safe file selection index
   const activeFile = loadedFiles[selectedIdx] || loadedFiles[0];
@@ -93,19 +97,12 @@ export const CreativeVisualizer: React.FC<CreativeVisualizerProps> = ({
   // Calculate detailed stats on file switch
   useEffect(() => {
     if (!activeFile || !activeFile.notes || activeFile.notes.length === 0) return;
-    const drifts = activeFile.notes.map(n => Math.abs(n.gridOffsetMs));
-    const maxDrift = drifts.reduce((a, d) => Math.max(a, d), 0);
-    const avg = drifts.reduce((s, d) => s + d, 0) / drifts.length;
-    const variance = drifts.reduce((s, d) => s + Math.pow(d - avg, 2), 0) / drifts.length;
-    const stdDev = Math.sqrt(variance);
-    // Successive differences (Jitter)
-    let diffSum = 0;
-    for (let i = 1; i < drifts.length; i++) {
-      diffSum += Math.abs(drifts[i] - drifts[i - 1]);
-    }
-    const jitter = drifts.length > 1 ? diffSum / (drifts.length - 1) : 0;
-
-    setStatsSummary({ maxDrift, stdDev, jitter });
+    const metrics = computeJitterMetrics(activeFile.notes);
+    setStatsSummary({
+      maxDrift: metrics.maxDrift,
+      stdDev: metrics.stdDev,
+      jitter: metrics.jitter,
+    });
   }, [activeFile]);
 
   // Handle manual selection
@@ -357,7 +354,7 @@ export const CreativeVisualizer: React.FC<CreativeVisualizerProps> = ({
       // Update playhead sequencer if playing
       if (currentIsPlaying && currentActiveFile) {
         const bpm = currentActiveFile.tempo || 120;
-        const beatsPerSecond = bpm / 60;
+        const beatsPerSecond = (bpm / 60) * playbackSpeedRef.current;
         let newPlayhead = currentPlayheadBeats + (dt * beatsPerSecond);
         
         // Loop range: 16 beats loop window
@@ -934,6 +931,28 @@ export const CreativeVisualizer: React.FC<CreativeVisualizerProps> = ({
             <p className="text-[9px] text-slate-500 leading-normal pt-1 font-sans">
               * Schalten Sie um, um den echten Timing-Drift im Vergleich zu absolut präziser Maschinen-Wiedergabe akustisch zu hören!
             </p>
+          </div>
+
+          {/* Playback Speed */}
+          <div className="space-y-1">
+            <div className="flex justify-between text-[11px] font-mono text-slate-400 uppercase tracking-wider font-semibold">
+              <span>Geschwindigkeit:</span>
+              <span className="text-white font-black">{playbackSpeed.toFixed(1)}x</span>
+            </div>
+            <input
+              type="range"
+              min="0.1"
+              max="3.0"
+              step="0.1"
+              value={playbackSpeed}
+              onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
+              className="w-full accent-indigo-500 h-1 bg-slate-950 rounded cursor-pointer"
+            />
+            <div className="flex justify-between text-[8px] text-slate-600">
+              <span>0.1x</span>
+              <span>1.0x</span>
+              <span>3.0x</span>
+            </div>
           </div>
 
           {/* Synth Sliders */}

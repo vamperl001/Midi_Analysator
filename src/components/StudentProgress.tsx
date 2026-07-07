@@ -1,16 +1,195 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { AlsFileStats, ScheduleEntry } from '../types';
-import { User, Clock, Edit3, Save, RefreshCw } from 'lucide-react';
+import { User, Edit3, Save, Upload, Download, RefreshCw } from 'lucide-react';
 
 const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
+function parseTime(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
 function matchStudent(session: AlsFileStats, schedule: ScheduleEntry[]): string | null {
+  if (!schedule.length) return null;
+  const sessionStart = parseTime(session.time);
+  // First try exact match (within slot boundaries +5min tolerance)
   for (const entry of schedule) {
-    if (entry.weekday === session.weekday && entry.time === session.time) {
+    if (entry.weekday !== session.weekday) continue;
+    const slotStart = parseTime(entry.time);
+    const slotEnd = slotStart + entry.duration + 5;
+    if (sessionStart >= slotStart - 5 && sessionStart <= slotEnd) {
       return entry.studentName;
     }
   }
-  return null;
+  // Fallback: find nearest slot on the same weekday within 4 hours
+  let bestDist = 4 * 60;
+  let bestName: string | null = null;
+  for (const entry of schedule) {
+    if (entry.weekday !== session.weekday) continue;
+    const slotStart = parseTime(entry.time);
+    const dist = Math.abs(sessionStart - slotStart);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestName = entry.studentName;
+    }
+  }
+  return bestName;
+}
+
+function anonymizeNames(schedule: ScheduleEntry[]): ScheduleEntry[] {
+  const seen = new Map<string, string>();
+  let counter = 1;
+  const usedNames = new Set<string>();
+  for (const e of schedule) {
+    if (e.studentName && !seen.has(e.studentName)) {
+      let name = 'Schüler ' + counter;
+      while (usedNames.has(name)) {
+        counter++;
+        name = 'Schüler ' + counter;
+      }
+      seen.set(e.studentName, name);
+      usedNames.add(name);
+      counter++;
+    }
+  }
+  return schedule.map(e => ({
+    ...e,
+    studentName: seen.get(e.studentName) ?? e.studentName,
+  }));
+}
+
+function StudentCharts({ sessions }: { sessions: AlsFileStats[] }) {
+  const n = sessions.length;
+  if (n === 0) return null;
+
+  const avgBpm = sessions.reduce((a, s) => a + (s.estimatedBpm ?? s.tempo), 0) / n;
+  const avgDrift = sessions.reduce((a, s) => a + s.avgDriftMs, 0) / n;
+  const avgVel = Math.round(sessions.reduce((a, s) => a + s.avgVelocity, 0) / n);
+  const avgFocus = Math.round(sessions.reduce((a, s) => a + (s.focusScore ?? 0), 0) / n);
+
+  const withSplit = sessions.filter(s => s.teacherStudentSplit);
+  const withStudent = withSplit.filter(s => s.teacherStudentSplit && s.teacherStudentSplit.studentNoteCount > 0);
+  const teacherDrift = withSplit.length > 0
+    ? withSplit.reduce((a, s) => a + s.teacherStudentSplit!.teacherAvgDriftMs, 0) / withSplit.length
+    : 0;
+  const studentDrift = withStudent.length > 0
+    ? withStudent.reduce((a, s) => a + s.teacherStudentSplit!.studentAvgDriftMs, 0) / withStudent.length
+    : 0;
+  const studentPct = withSplit.length > 0
+    ? withSplit.reduce((a, s) => a + (s.teacherStudentSplit!.studentNoteCount / Math.max(1, s.notesCount)) * 100, 0) / withSplit.length
+    : 0;
+
+  return (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        <div>
+          <div className="text-xs font-semibold text-slate-400 mb-1">Noten pro Session</div>
+          <div className="h-24 flex items-end gap-1">
+            {sessions.map((s, i) => {
+              const maxNotes = Math.max(...sessions.map(x => x.notesCount), 1);
+              const h = (s.notesCount / maxNotes) * 100;
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                  <div className="w-full bg-blue-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
+                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs font-semibold text-slate-400 mb-1">Drift (ms) &Oslash;</div>
+          <div className="h-24 flex items-end gap-1">
+            {sessions.map((s, i) => {
+              const maxDrift = Math.max(...sessions.map(x => x.avgDriftMs), 1);
+              const h = (s.avgDriftMs / maxDrift) * 100;
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                  <div className="w-full bg-amber-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
+                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs font-semibold text-slate-400 mb-1">BPM</div>
+          <div className="h-24 flex items-end gap-1">
+            {sessions.map((s, i) => {
+              const bpm = s.estimatedBpm ?? s.tempo;
+              const minBpm = Math.min(...sessions.map(x => x.estimatedBpm ?? x.tempo));
+              const maxBpm = Math.max(...sessions.map(x => x.estimatedBpm ?? x.tempo));
+              const range = Math.max(maxBpm - minBpm, 5);
+              const h = (bpm - minBpm) / range * 100;
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                  <div className="w-full bg-emerald-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
+                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs font-semibold text-slate-400 mb-1">Velocity &Oslash;</div>
+          <div className="h-24 flex items-end gap-1">
+            {sessions.map((s, i) => {
+              const minVel = Math.min(...sessions.map(x => x.avgVelocity));
+              const maxVel = Math.max(...sessions.map(x => x.avgVelocity));
+              const range = Math.max(maxVel - minVel, 10);
+              const h = (s.avgVelocity - minVel) / range * 100;
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                  <div className="w-full bg-purple-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
+                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs font-semibold text-slate-400 mb-1">Focus Score</div>
+          <div className="h-24 flex items-end gap-1">
+            {sessions.map((s, i) => {
+              const minScore = Math.min(...sessions.map(x => x.focusScore ?? 0));
+              const maxScore = Math.max(...sessions.map(x => x.focusScore ?? 0));
+              const range = Math.max(maxScore - minScore, 10);
+              const h = ((s.focusScore ?? 0) - minScore) / range * 100;
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                  <div className="w-full bg-rose-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
+                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+      </div>
+
+      {withSplit.length > 0 && (
+        <div className="text-[10px] text-slate-300 bg-amber-900/20 border border-amber-800/30 rounded p-2 flex flex-wrap gap-3">
+          <span className="font-semibold">Lehrer/Sch&uuml;ler:</span>
+          <span>Lehrer-Drift &Oslash; {teacherDrift.toFixed(1)} ms</span>
+          <span>Sch&uuml;ler-Drift &Oslash; {studentDrift.toFixed(1)} ms</span>
+          <span>Sch&uuml;ler-Anteil &Oslash; {studentPct.toFixed(0)}%</span>
+        </div>
+      )}
+
+      <div className="text-xs text-slate-400 grid grid-cols-5 gap-2 pt-2 border-t border-slate-700/50">
+        <div>{n} Sessions</div>
+        <div>BPM &Oslash; {avgBpm.toFixed(1)}</div>
+        <div>Drift &Oslash; {avgDrift.toFixed(1)} ms</div>
+        <div>Velocity &Oslash; {avgVel}</div>
+        <div>Focus &Oslash; {avgFocus}</div>
+      </div>
+    </>
+  );
 }
 
 interface Props {
@@ -22,27 +201,55 @@ interface Props {
 export function StudentProgress({ sessions, schedule, onScheduleChange }: Props) {
   const [editing, setEditing] = useState(false);
   const [editSchedule, setEditSchedule] = useState<ScheduleEntry[]>(() => [...schedule]);
+  const [importText, setImportText] = useState('');
+  const [showImport, setShowImport] = useState(false);
 
   const studentGroups = useMemo(() => {
     const map = new Map<string, AlsFileStats[]>();
+    const unmatched: AlsFileStats[] = [];
     for (const s of sessions) {
       const name = matchStudent(s, schedule);
       if (name) {
         if (!map.has(name)) map.set(name, []);
-        map.get(name)!.push(s);
+        // Zeit aus dem passenden Slot übernehmen
+        const match = schedule.find(e => e.studentName === name);
+        map.get(name)!.push(match && match.time !== s.time ? { ...s, time: match.time } : s);
+      } else {
+        unmatched.push(s);
       }
     }
-    // Sort each student's sessions by date
+    // Unzugeordnete Sessions nach Wochentag gruppieren
+    if (unmatched.length > 0) {
+      const wdMap = new Map<string, AlsFileStats[]>();
+      for (const s of unmatched) {
+        const key = `${WEEKDAYS[s.weekday]} (unzugeordnet)`;
+        if (!wdMap.has(key)) wdMap.set(key, []);
+        wdMap.get(key)!.push(s);
+      }
+      for (const [key, arr] of wdMap) {
+        arr.sort((a, b) => a.date.localeCompare(b.date));
+        map.set(key, arr);
+      }
+    }
     for (const [, arr] of map) {
       arr.sort((a, b) => a.date.localeCompare(b.date));
     }
     return map;
   }, [sessions, schedule]);
 
-  const handleSave = () => {
+  const handleSave = useCallback(async () => {
     onScheduleChange(editSchedule);
     setEditing(false);
-  };
+    try {
+      await fetch('/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule: editSchedule }),
+      });
+    } catch {
+      // Backend not reachable -> localStorage handled by parent
+    }
+  }, [editSchedule, onScheduleChange]);
 
   const addSlot = () => {
     setEditSchedule(prev => [...prev, { weekday: 1, time: '14:00', studentName: '', duration: 30 }]);
@@ -54,6 +261,55 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
 
   const updateSlot = (idx: number, field: keyof ScheduleEntry, value: string | number) => {
     setEditSchedule(prev => prev.map((e, i) => i === idx ? { ...e, [field]: value } : e));
+  };
+
+  const handleImport = () => {
+    try {
+      const parsed = JSON.parse(importText);
+      const entries: ScheduleEntry[] = [];
+      for (const e of parsed.entries ?? parsed) {
+        if (!e.date || !e.start || !e.students?.length) continue;
+        const dt = new Date(e.date);
+        const wd = dt.getDay();
+        const timeStr = e.start.includes('T') ? e.start.split('T')[1].slice(0, 5) :
+                        e.start.includes(' ') ? e.start.split(' ')[1].slice(0, 5) :
+                        e.start.slice(0, 5);
+        const endStr = e.end?.includes('T') ? e.end.split('T')[1].slice(0, 5) :
+                       e.end?.includes(' ') ? e.end.split(' ')[1].slice(0, 5) :
+                       e.end?.slice(0, 5) || '';
+        const [sh, sm] = timeStr.split(':').map(Number);
+        const [eh, em] = endStr ? endStr.split(':').map(Number) : [sh + 0, sm + 30];
+        const dur = (eh * 60 + em) - (sh * 60 + sm);
+        entries.push({
+          weekday: wd,
+          time: timeStr,
+          studentName: e.students[0],
+          duration: dur > 0 ? dur : 30,
+        });
+      }
+      // Deduplicate (last wins for same weekday+time)
+      const map = new Map<string, ScheduleEntry>();
+      for (const e of entries) {
+        map.set(`${e.weekday}|${e.time}`, e);
+      }
+      let merged = Array.from(map.values()).sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time));
+      merged = anonymizeNames(merged);
+      setEditSchedule(merged);
+      setShowImport(false);
+      setImportText('');
+    } catch (err) {
+      alert('Import fehlgeschlagen: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(schedule, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'stundenplan.json';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -68,34 +324,67 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
             onClick={async () => {
               try {
                 const res = await fetch('/api/axinio/timetable');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
-                const entries_map = new Map();
+                if (!data.entries?.length) throw new Error('Keine Termine gefunden');
+                const entries: ScheduleEntry[] = [];
                 for (const e of data.entries) {
                   if (!e.date || !e.start || !e.students?.length) continue;
                   const dt = new Date(e.date);
-                  const wd = dt.getDay() === 0 ? 6 : dt.getDay() - 1; // 0=Mo
-                  const time_str = e.start.includes(' ') ? e.start.split(' ')[1].slice(0, 5) : e.start.slice(0, 5);
-                  const key = wd + '|' + time_str;
-                  if (!entries_map.has(key)) entries_map.set(key, { student: e.students[0], end: e.end });
+                  const wd = dt.getDay();
+                  const timeStr = e.start.includes('T') ? e.start.split('T')[1].slice(0, 5) :
+                                  e.start.includes(' ') ? e.start.split(' ')[1].slice(0, 5) :
+                                  e.start.slice(0, 5);
+                  const endStr = e.end?.includes('T') ? e.end.split('T')[1].slice(0, 5) :
+                                 e.end?.includes(' ') ? e.end.split(' ')[1].slice(0, 5) :
+                                 e.end?.slice(0, 5) || '';
+                  const [sh, sm] = timeStr.split(':').map(Number);
+                  const [eh, em] = endStr ? endStr.split(':').map(Number) : [sh + 0, sm + 30];
+                  const dur = (eh * 60 + em) - (sh * 60 + sm);
+                  entries.push({
+                    weekday: wd,
+                    time: timeStr,
+                    studentName: e.students[0],
+                    duration: dur > 0 ? dur : 30,
+                  });
                 }
-                const unique = [...new Set(Array.from(entries_map.values()).map(v => v.student))].sort();
-                const anon = Object.fromEntries(unique.map((s, i) => [s, 'Schüler ' + (i + 1)]));
-                const slots = Array.from(entries_map.entries()).sort().map(([k, v]) => {
-                  const [wd, time_str] = k.split('|');
-                  const end_str = v.end?.includes(' ') ? v.end.split(' ')[1].slice(0, 5) : '';
-                  const [sh, sm] = time_str.split(':').map(Number);
-                  const [eh, em] = end_str ? end_str.split(':').map(Number) : [sh, sm + 30];
-                  return { weekday: Number(wd), time: time_str, studentName: anon[v.student], duration: (eh * 60 + em) - (sh * 60 + sm) };
-                });
-                onScheduleChange(slots);
+                const map = new Map<string, ScheduleEntry>();
+                for (const e of entries) {
+                  map.set(`${e.weekday}|${e.time}`, e);
+                }
+                let merged = Array.from(map.values()).sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time));
+                merged = anonymizeNames(merged);
+                setEditSchedule(merged);
+                onScheduleChange(merged);
+                try {
+                  await fetch('/api/schedule', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ schedule: merged }),
+                  });
+                } catch {}
+                alert(`${merged.length} Zeit-Slots aus Axinio importiert und anonymisiert.`);
               } catch (err) {
                 alert('Axinio-Import fehlgeschlagen: ' + (err instanceof Error ? err.message : String(err)));
               }
             }}
-            className="text-xs flex items-center gap-1 px-3 py-1.5 rounded bg-indigo-900/30 text-indigo-300 border border-indigo-800/50 hover:bg-indigo-900/50 transition-colors"
+            className="text-xs flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-900/30 text-emerald-300 border border-emerald-800/50 hover:bg-emerald-900/50 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            Axinio importieren
+            Axinio live
+          </button>
+          <button
+            onClick={() => { setShowImport(!showImport); setImportText(''); }}
+            className="text-xs flex items-center gap-1 px-3 py-1.5 rounded bg-indigo-900/30 text-indigo-300 border border-indigo-800/50 hover:bg-indigo-900/50 transition-colors"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Importieren
+          </button>
+          <button
+            onClick={handleExport}
+            className="text-xs flex items-center gap-1 px-3 py-1.5 rounded bg-slate-700 border border-slate-600 hover:bg-slate-600 text-slate-200 transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Export
           </button>
           <button
             onClick={() => editing ? handleSave() : setEditing(true)}
@@ -106,6 +395,40 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
           </button>
         </div>
       </div>
+
+      {showImport && (
+        <div className="bg-slate-800/60 border border-slate-700/50 rounded-lg p-4 space-y-2">
+          <div className="text-xs font-semibold text-slate-400 mb-1">
+            Axinio-Kalender-Export (JSON) einfügen
+          </div>
+          <p className="text-[10px] text-slate-500">
+            Exportiere den Kalender aus Axinio als JSON und füge ihn hier ein.
+            Die Schüler-Namen werden automatisch anonymisiert (Schüler 1, Schüler 2, …).
+          </p>
+          <textarea
+            value={importText}
+            onChange={e => setImportText(e.target.value)}
+            rows={6}
+            className="w-full border border-slate-600 rounded px-2 py-1 bg-slate-900 text-slate-200 text-xs font-mono"
+            placeholder='[{"date":"2025-01-15","start":"14:00","end":"14:30","students":["Max Mustermann"]}, ...]'
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleImport}
+              disabled={!importText.trim()}
+              className="text-xs px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-colors"
+            >
+              Importieren & anonymisieren
+            </button>
+            <button
+              onClick={() => { setShowImport(false); setImportText(''); }}
+              className="text-xs px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+            >
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
 
       {editing && (
         <div className="bg-slate-800/60 border border-slate-700/50 rounded-lg p-4 space-y-2">
@@ -162,142 +485,7 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
       {Array.from(studentGroups.entries()).map(([name, studentSessions]) => (
         <div key={name} className="bg-slate-900/60 border border-slate-700/50 rounded-lg p-4 space-y-3">
           <div className="text-sm font-bold text-slate-100">{name}</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Notes over time */}
-            <div>
-              <div className="text-xs font-semibold text-slate-400 mb-1">Noten pro Session</div>
-              <div className="h-24 flex items-end gap-1">
-                {studentSessions.map((s, i) => {
-                  const maxNotes = Math.max(...studentSessions.map(x => x.notesCount), 1);
-                  const h = (s.notesCount / maxNotes) * 100;
-                  return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                      <div className="w-full bg-blue-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                      <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">
-                        {s.date.slice(5)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Drift over time */}
-            <div>
-              <div className="text-xs font-semibold text-slate-400 mb-1">Drift (ms) Ø</div>
-              <div className="h-24 flex items-end gap-1">
-                {studentSessions.map((s, i) => {
-                  const maxDrift = Math.max(...studentSessions.map(x => x.avgDriftMs), 1);
-                  const h = (s.avgDriftMs / maxDrift) * 100;
-                  return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                      <div className="w-full bg-amber-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                      <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">
-                        {s.date.slice(5)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* BPM over time */}
-            <div>
-              <div className="text-xs font-semibold text-slate-400 mb-1">BPM</div>
-              <div className="h-24 flex items-end gap-1">
-                {studentSessions.map((s, i) => {
-                  const minBpm = Math.min(...studentSessions.map(x => x.estimatedBpm ?? x.tempo));
-                  const maxBpm = Math.max(...studentSessions.map(x => x.estimatedBpm ?? x.tempo));
-                  const range = Math.max(maxBpm - minBpm, 5);
-                  const h = ((s.estimatedBpm ?? s.tempo) - minBpm) / range * 100;
-                  return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                      <div className="w-full bg-emerald-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                      <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">
-                        {s.date.slice(5)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Velocity over time */}
-            <div>
-              <div className="text-xs font-semibold text-slate-400 mb-1">Velocity Ø</div>
-              <div className="h-24 flex items-end gap-1">
-                {studentSessions.map((s, i) => {
-                  const minVel = Math.min(...studentSessions.map(x => x.avgVelocity));
-                  const maxVel = Math.max(...studentSessions.map(x => x.avgVelocity));
-                  const range = Math.max(maxVel - minVel, 10);
-                  const h = (s.avgVelocity - minVel) / range * 100;
-                  return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                      <div className="w-full bg-purple-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                      <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">
-                        {s.date.slice(5)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Focus Score over time */}
-            <div>
-              <div className="text-xs font-semibold text-slate-400 mb-1">Focus Score</div>
-              <div className="h-24 flex items-end gap-1">
-                {studentSessions.map((s, i) => {
-                  const minScore = Math.min(...studentSessions.map(x => x.focusScore ?? 0));
-                  const maxScore = Math.max(...studentSessions.map(x => x.focusScore ?? 0));
-                  const range = Math.max(maxScore - minScore, 10);
-                  const h = ((s.focusScore ?? 0) - minScore) / range * 100;
-                  return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                      <div className="w-full bg-rose-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                      <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">
-                        {s.date.slice(5)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Teacher/Student Split info - shows student-only drift */}
-          {studentSessions.some(s => s.teacherStudentSplit && s.teacherStudentSplit.studentNoteCount > 0) && (
-            <div className="text-[10px] text-slate-300 bg-amber-900/20 border border-amber-800/30 rounded p-2 flex flex-wrap gap-3">
-              <span className="font-semibold">👤 Lehrer/Schüler:</span>
-              <span>Lehrer-Drift Ø {(
-                studentSessions
-                  .filter(s => s.teacherStudentSplit)
-                  .reduce((a, s) => a + s.teacherStudentSplit!.teacherAvgDriftMs, 0) /
-                studentSessions.filter(s => s.teacherStudentSplit).length
-              ).toFixed(1)} ms</span>
-              <span>Schüler-Drift Ø {(
-                studentSessions
-                  .filter(s => s.teacherStudentSplit && s.teacherStudentSplit.studentNoteCount > 0)
-                  .reduce((a, s) => a + s.teacherStudentSplit!.studentAvgDriftMs, 0) /
-                Math.max(1, studentSessions.filter(s => s.teacherStudentSplit && s.teacherStudentSplit.studentNoteCount > 0).length)
-              ).toFixed(1)} ms</span>
-              <span>Schüler-Anteil Ø {(
-                studentSessions
-                  .filter(s => s.teacherStudentSplit)
-                  .reduce((a, s) => a + (s.teacherStudentSplit!.studentNoteCount / Math.max(1, s.notesCount)) * 100, 0) /
-                Math.max(1, studentSessions.filter(s => s.teacherStudentSplit).length)
-              ).toFixed(0)}%</span>
-            </div>
-          )}
-
-          {/* Summary stats */}
-          <div className="text-xs text-slate-400 grid grid-cols-5 gap-2 pt-2 border-t border-slate-700/50">
-            <div>{studentSessions.length} Sessions</div>
-            <div>BPM Ø {(studentSessions.reduce((a, s) => a + (s.estimatedBpm ?? s.tempo), 0) / studentSessions.length).toFixed(1)}</div>
-            <div>Drift Ø {(studentSessions.reduce((a, s) => a + s.avgDriftMs, 0) / studentSessions.length).toFixed(1)} ms</div>
-            <div>Velocity Ø {Math.round(studentSessions.reduce((a, s) => a + s.avgVelocity, 0) / studentSessions.length)}</div>
-            <div>Focus Ø {Math.round(studentSessions.reduce((a, s) => a + (s.focusScore ?? 0), 0) / studentSessions.length)}</div>
-          </div>
+          <StudentCharts sessions={studentSessions} />
         </div>
       ))}
     </div>

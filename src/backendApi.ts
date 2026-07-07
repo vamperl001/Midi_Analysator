@@ -84,11 +84,13 @@ export async function loadSessionsFromCloud(): Promise<AlsFileStats[]> {
 export async function loadSessionNotesFromCloud(docId: string): Promise<{
   notes: AlsFileStats["notes"];
   teacherStudentSplit: AlsFileStats["teacherStudentSplit"];
+  velocitySpread: AlsFileStats["velocitySpread"];
+  polyphony: AlsFileStats["polyphony"];
   slidingTempo: AlsFileStats["slidingTempo"];
   pedalAnalysis: AlsFileStats["pedalAnalysis"];
 }> {
   const res = await fetch(`${API}/${encodeURIComponent(docId)}`);
-  if (!res.ok) return { notes: [], teacherStudentSplit: undefined, slidingTempo: undefined, pedalAnalysis: undefined };
+  if (!res.ok) return { notes: [], teacherStudentSplit: undefined, velocitySpread: undefined, polyphony: undefined, slidingTempo: undefined, pedalAnalysis: undefined };
   const session: Record<string, unknown> = await res.json();
   const rawNotes = (session["notes"] as Record<string, unknown>[]) || [];
   const notes: AlsFileStats["notes"] = rawNotes.map((n: Record<string, unknown>, idx: number) => ({
@@ -106,6 +108,8 @@ export async function loadSessionNotesFromCloud(docId: string): Promise<{
   return {
     notes,
     teacherStudentSplit: session["teacherStudentSplit"] as AlsFileStats["teacherStudentSplit"],
+    velocitySpread: session["velocitySpread"] as AlsFileStats["velocitySpread"],
+    polyphony: session["polyphony"] as AlsFileStats["polyphony"],
     slidingTempo: session["slidingTempo"] as AlsFileStats["slidingTempo"],
     pedalAnalysis: session["pedalAnalysis"] as AlsFileStats["pedalAnalysis"],
   };

@@ -46,10 +46,21 @@ function normalizeTimeToSlot(date: Date): string {
 
 export function extractFileDateTime(file: File): { date: string; time: string; weekday: number } {
   const dateMatch = file.name.match(/(\d{4}-\d{2}-\d{2})/);
+  const dateMatchDE = file.name.match(/(\d{2})[.](\d{2})[.](\d{4})/);
+  const dateMatchDEShort = file.name.match(/(\d{2})[.](\d{2})[.](\d{2})/);
   const lastMod = file.lastModified ? new Date(file.lastModified) : new Date();
   let date: string;
   if (dateMatch) {
     date = dateMatch[1];
+  } else if (dateMatchDE) {
+    const y = dateMatchDE[3];
+    const m = dateMatchDE[2];
+    const d = dateMatchDE[1];
+    date = `${y}-${m}-${d}`;
+  } else if (dateMatchDEShort) {
+    let y = parseInt(dateMatchDEShort[3]);
+    y = y < 50 ? 2000 + y : 1900 + y;
+    date = `${y}-${dateMatchDEShort[2]}-${dateMatchDEShort[1]}`;
   } else {
     date = dateToStr(lastMod);
   }
@@ -621,18 +632,27 @@ async function parseBandFile(file: File): Promise<AlsFileStats> {
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
 
-  const notes: MidiNote[] = rawNotes.map((rn, i) => ({
-    id: `band-${i}`,
-    key: rn.midi,
-    noteName: getNoteName(rn.midi),
-    time: rn.time,
-    duration: rn.duration,
-    velocity: rn.velocity,
-    gridOffset: 0,
-    gridOffsetMs: 0,
-    nearestGrid: 0,
-    trackName: rn.trackName,
-  }));
+  const grid = 0.25;
+  const msPerBeat = 60000 / avgTempo;
+  const notes: MidiNote[] = rawNotes.map((rn, i) => {
+    const nearestGrid = Math.round(rn.time / grid) * grid;
+    const gridOffset = rn.time - nearestGrid;
+    const gridOffsetMs = gridOffset * msPerBeat;
+    return {
+      id: `band-${i}`,
+      key: rn.midi,
+      noteName: getNoteName(rn.midi),
+      time: rn.time,
+      duration: rn.duration,
+      velocity: rn.velocity,
+      gridOffset,
+      gridOffsetMs,
+      nearestGrid,
+      trackName: rn.trackName,
+    };
+  });
+
+  const analysis = analyzeSessionMidiStats(notes, avgTempo);
 
   return {
     fileName: file.name,
@@ -640,15 +660,15 @@ async function parseBandFile(file: File): Promise<AlsFileStats> {
     time: `${hh}:${mm}`,
     weekday: now.getDay(),
     tempo: avgTempo,
-    estimatedBpm: avgTempo,
+    estimatedBpm: analysis.estimatedBpm,
     notesCount: notes.length,
     avgVelocity: notes.length > 0
       ? Math.round(notes.reduce((s, n) => s + n.velocity, 0) / notes.length)
       : 0,
-    avgDriftMs: 0,
-    swingFactor16th: 0,
-    estimatedKey: "C",
-    notes: notes,
+    avgDriftMs: analysis.avgDriftMs,
+    swingFactor16th: analysis.swingFactor16th,
+    estimatedKey: analysis.estimatedKey,
+    notes: analysis.notes,
   };
 }
 
@@ -735,6 +755,7 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
           const totalVel = notes.reduce((sum, n) => sum + n.velocity, 0);
           const avgVelocity = notesCount > 0 ? Math.round(totalVel / notesCount) : 100;
           const fdt = extractFileDateTime(file);
+          const analysis = analyzeSessionMidiStats(notes, tempo);
 
           resolve({
             fileName: file.name,
@@ -744,14 +765,14 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
             tempo: parseFloat(tempo.toFixed(2)),
             notesCount,
             avgVelocity,
-            avgDriftMs: 0,
-            swingFactor16th: 50.0,
-            notes,
-            estimatedBpm: tempo,
-            styleCategory: "Melodisch",
-            structureCategory: "Klassisches Stück",
-            estimatedKey: "Unbekannt",
-            bpmSegments: []
+            avgDriftMs: analysis.avgDriftMs,
+            swingFactor16th: analysis.swingFactor16th,
+            notes: analysis.notes,
+            estimatedBpm: analysis.estimatedBpm,
+            styleCategory: analysis.styleCategory,
+            structureCategory: analysis.structureCategory,
+            estimatedKey: analysis.estimatedKey,
+            bpmSegments: analysis.bpmSegments
           });
           return;
         }
@@ -1242,6 +1263,7 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
         const totalVel = notes.reduce((sum, n) => sum + n.velocity, 0);
         const avgVelocity = notesCount > 0 ? Math.round(totalVel / notesCount) : 100;
         const fdt = extractFileDateTime(file);
+        const analysis = analyzeSessionMidiStats(notes, tempo);
 
         resolve({
           fileName: file.name,
@@ -1251,14 +1273,14 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
           tempo: parseFloat(tempo.toFixed(2)),
           notesCount,
           avgVelocity,
-          avgDriftMs: 0,
-          swingFactor16th: 50.0,
-          notes,
-          estimatedBpm: tempo,
-          styleCategory: "Melodisch",
-          structureCategory: "Klassisches Stück",
-          estimatedKey: "Unbekannt",
-          bpmSegments: []
+          avgDriftMs: analysis.avgDriftMs,
+          swingFactor16th: analysis.swingFactor16th,
+          notes: analysis.notes,
+          estimatedBpm: analysis.estimatedBpm,
+          styleCategory: analysis.styleCategory,
+          structureCategory: analysis.structureCategory,
+          estimatedKey: analysis.estimatedKey,
+          bpmSegments: analysis.bpmSegments
         });
 
       } catch (error) {
