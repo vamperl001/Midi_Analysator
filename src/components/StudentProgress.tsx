@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { AlsFileStats, ScheduleEntry } from '../types';
-import { User, Edit3, Save, Upload, Download, RefreshCw } from 'lucide-react';
+import { User, Edit3, Save, Upload, Download, RefreshCw, TrendingUp, Activity } from 'lucide-react';
 
 const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
@@ -62,10 +62,15 @@ function StudentCharts({ sessions }: { sessions: AlsFileStats[] }) {
   const n = sessions.length;
   if (n === 0) return null;
 
+  const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
   const avgBpm = sessions.reduce((a, s) => a + (s.estimatedBpm ?? s.tempo), 0) / n;
   const avgDrift = sessions.reduce((a, s) => a + s.avgDriftMs, 0) / n;
   const avgVel = Math.round(sessions.reduce((a, s) => a + s.avgVelocity, 0) / n);
   const avgFocus = Math.round(sessions.reduce((a, s) => a + (s.focusScore ?? 0), 0) / n);
+  const drifts = sorted.map(s => s.avgDriftMs);
+  const firstDrift = drifts.length > 0 ? drifts[0] : 0;
+  const lastDrift = drifts.length > 0 ? drifts[drifts.length - 1] : 0;
+  const driftChange = firstDrift > 0 ? ((firstDrift - lastDrift) / firstDrift * 100).toFixed(0) : '0';
 
   const withSplit = sessions.filter(s => s.teacherStudentSplit);
   const withStudent = withSplit.filter(s => s.teacherStudentSplit && s.teacherStudentSplit.studentNoteCount > 0);
@@ -81,18 +86,40 @@ function StudentCharts({ sessions }: { sessions: AlsFileStats[] }) {
 
   return (
     <>
+      <div className="grid grid-cols-4 gap-3 mb-4 text-center font-mono">
+        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
+          <div className="text-[8px] text-slate-400 uppercase font-black">Sessions</div>
+          <div className="text-sm font-bold text-white">{n}</div>
+        </div>
+        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
+          <div className="text-[8px] text-slate-400 uppercase font-black">ø Drift</div>
+          <div className="text-sm font-bold text-amber-400">{avgDrift.toFixed(1)}ms</div>
+        </div>
+        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
+          <div className="text-[8px] text-slate-400 uppercase font-black">Trend</div>
+          <div className={`text-sm font-bold ${Number(driftChange) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {Number(driftChange) > 0 ? '↓' : '↑'} {Math.abs(Number(driftChange))}%
+          </div>
+        </div>
+        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
+          <div className="text-[8px] text-slate-400 uppercase font-black">ø BPM</div>
+          <div className="text-sm font-bold text-white">{avgBpm.toFixed(0)}</div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         <div>
-          <div className="text-xs font-semibold text-slate-400 mb-1">Noten pro Session</div>
+          <div className="text-xs font-semibold text-slate-400 mb-1">Drift-Entwicklung</div>
           <div className="h-24 flex items-end gap-1">
-            {sessions.map((s, i) => {
-              const maxNotes = Math.max(...sessions.map(x => x.notesCount), 1);
-              const h = (s.notesCount / maxNotes) * 100;
+            {sorted.map((s, i) => {
+              const maxDrift = Math.max(...sorted.map(x => x.avgDriftMs), 1);
+              const h = (s.avgDriftMs / maxDrift) * 100;
+              const color = s.avgDriftMs < 12 ? 'bg-emerald-500' : s.avgDriftMs < 20 ? 'bg-amber-500' : 'bg-red-500';
               return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                  <div className="w-full bg-blue-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
+                <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${s.date}: ${s.avgDriftMs.toFixed(1)}ms`}>
+                  <div className={`w-full ${color} rounded-t`} style={{ height: `${h}%`, minHeight: 2 }} />
+                  <span className="text-[8px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
                 </div>
               );
             })}
@@ -482,7 +509,14 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
         </div>
       )}
 
-      {Array.from(studentGroups.entries()).map(([name, studentSessions]) => (
+      {Array.from(studentGroups.entries())
+        .sort(([a], [b]) => {
+          const aUnmatched = a.includes('(unzugeordnet)');
+          const bUnmatched = b.includes('(unzugeordnet)');
+          if (aUnmatched !== bUnmatched) return aUnmatched ? 1 : -1;
+          return a.localeCompare(b);
+        })
+        .map(([name, studentSessions]) => (
         <div key={name} className="bg-slate-900/60 border border-slate-700/50 rounded-lg p-4 space-y-3">
           <div className="text-sm font-bold text-slate-100">{name}</div>
           <StudentCharts sessions={studentSessions} />

@@ -7,14 +7,9 @@ import {
 import { AlsFileStats } from '../types';
 import { chart as chartTheme, accent } from '../theme';
 import {
-  Music, TrendingUp, Activity, Heart, Calendar, Layers,
+  TrendingUp, Activity, Heart, Calendar, Layers,
   ChevronDown, ChevronUp, BarChart3, LineChart as LineChartIcon
 } from 'lucide-react';
-
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-function getNoteName(key: number): string {
-  return `${NOTE_NAMES[key % 12]}${Math.floor(key / 12) - 1}`;
-}
 
 const SECTION_STYLES = "bg-slate-900/80 border border-slate-700/50 rounded-lg p-6";
 
@@ -56,22 +51,6 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
       bins[idx].count++;
     });
     return bins;
-  }, [allNotes]);
-
-  // Key/density heatmap
-  const noteDensity = useMemo(() => {
-    const keyCount: Record<number, number> = {};
-    allNotes.forEach(n => {
-      keyCount[n.key] = (keyCount[n.key] || 0) + 1;
-    });
-    const keys = Object.keys(keyCount).map(Number).sort((a, b) => a - b);
-    const maxCount = Math.max(...Object.values(keyCount), 1);
-    return keys.map(k => ({
-      key: k,
-      noteName: getNoteName(k),
-      count: keyCount[k],
-      intensity: keyCount[k] / maxCount,
-    }));
   }, [allNotes]);
 
   // Polyphony vs Drift scatter data
@@ -117,7 +96,6 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
   // Sections open/close state
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     velocity: true,
-    piano: true,
     bpm: true,
     poly: true,
     pedal: true,
@@ -190,39 +168,7 @@ export const AdvancedCharts: React.FC<AdvancedChartsProps> = ({ data }) => {
         )}
       </div>
 
-      {/* Piano-Roll Heatmap (Note Density) */}
-      <div className={SECTION_STYLES}>
-        <SectionHeader id="piano" icon={<Music className="w-4 h-4" />} title="Piano-Roll Dichte (Welche Töne spielst du?)" color="text-indigo-600" />
-        {openSections.piano && (
-          <div>
-            <p className="text-xs text-slate-400 italic font-serif mb-4">
-              Je dunkler das Feld, desto öfter wurde dieser Ton gespielt. Zeigt deine bevorzugten Lagen undTonvorräte.
-            </p>
-            <div className="overflow-x-auto">
-              <div className="flex gap-0.5 min-w-max" style={{ flexWrap: 'wrap' }}>
-                {noteDensity.map((n, idx) => (
-                  <div
-                    key={idx}
-                    className="w-8 h-10 flex items-center justify-center text-[8px] font-mono font-bold rounded-sm transition-colors cursor-pointer hover:ring-1 hover:ring-slate-400"
-                    style={{
-                      backgroundColor: `rgba(99, 102, 241, ${0.1 + n.intensity * 0.85})`,
-                      color: n.intensity > 0.5 ? 'white' : '#475569',
-                    }}
-                    title={`${n.noteName}: ${n.count} mal`}
-                  >
-                    {n.noteName}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-center gap-3 mt-3 text-[10px] font-mono text-slate-400">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-900/40 inline-block"></span> selten</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-500 inline-block"></span> mittel</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-300 inline-block"></span> häufig</span>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Piano-Roll Heatmap moved to SvgCharts (Tonleiter-Verteilung) */}
 
       {/* BPM Stability */}
       <div className={SECTION_STYLES}>

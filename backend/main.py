@@ -197,7 +197,8 @@ async def proxy_axinio(path: str, request: Request):
 
 # ---------- Upload & Analysis Endpoints ----------
 
-from process_als import process_midi_file, process_band_file, analyze_notes, separate_teacher_student, compute_focus_score, extract_file_datetime, save_to_db
+from process_als import process_midi_file, process_band_file, analyze_notes, separate_teacher_student, compute_focus_score, extract_file_datetime
+from analysis.advanced import compute_velocity_spread, compute_polyphony_metrics, compute_fourier_sliding_tempo, analyze_sustain_pedal
 
 
 @app.post("/api/upload")
@@ -214,7 +215,7 @@ async def upload_session(request: Request, file_name: str = "unknown.als"):
             result = process_band_file(body, file_name)
         else:
             raise HTTPException(400, f"Unsupported format for server-side: {ext}")
-        sid = save_to_db(str(DB_PATH), result)
+        sid, _created = repo.save_session(result)
         return {"id": sid, **result}
     except Exception as e:
         raise HTTPException(500, f"Processing failed: {e}")
@@ -237,6 +238,7 @@ async def analyze_session(payload: dict):
     import numpy as np
     avg_vel = float(np.mean([n["velocity"] for n in raw_notes])) if raw_notes else 0
 
+    advanced = _compute_advanced_metrics(analysis_notes, analysis["estimatedBpm"], analysis["avgDriftMs"])
     result = {
         "fileName": file_name,
         "date": date_str,
@@ -253,10 +255,117 @@ async def analyze_session(payload: dict):
         "focusScore": focus_score,
         "teacherStudentSplit": teacher_student,
         "notes": analysis_notes,
+        "velocitySpread": advanced["velocitySpread"],
+        "polyphony": advanced["polyphony"],
+        "slidingTempo": advanced["slidingTempo"],
+        "pedalAnalysis": advanced["pedalAnalysis"],
     }
 
-    sid = save_to_db(str(DB_PATH), result)
+    sid, _created = repo.save_session(result)
     return {"id": sid, **result}
+
+
+@app.post("/api/analyze/notes")
+async def analyze_notes_only(payload: dict):
+    raw_notes = payload.get("notes", [])
+    tempo = payload.get("tempo", 120)
+    file_name = payload.get("fileName", "unknown.als")
+
+    analysis = analyze_notes(raw_notes, tempo)
+    analysis_notes = analysis["notes"]
+
+    date_str, time_str, weekday = extract_file_datetime(file_name)
+    teacher_student = separate_teacher_student(analysis_notes)
+    focus_score = compute_focus_score(analysis_notes, analysis["avgDriftMs"])
+
+    import numpy as np
+    avg_vel = float(np.mean([n["velocity"] for n in raw_notes])) if raw_notes else 0
+
+    advanced = _compute_advanced_metrics(analysis_notes, analysis["estimatedBpm"], analysis["avgDriftMs"])
+    return {
+        "fileName": file_name,
+        "date": date_str,
+        "time": time_str,
+        "weekday": weekday,
+        "tempo": analysis["estimatedBpm"],
+        "notesCount": len(raw_notes),
+        "avgVelocity": round(avg_vel, 1),
+        "avgDriftMs": analysis["avgDriftMs"],
+        "swingFactor16th": analysis["swingFactor16th"],
+        "estimatedKey": analysis["estimatedKey"],
+        "styleCategory": analysis["styleCategory"],
+        "structureCategory": analysis["structureCategory"],
+        "focusScore": focus_score,
+        "teacherStudentSplit": teacher_student,
+        "notes": analysis_notes,
+        "velocitySpread": advanced["velocitySpread"],
+        "polyphony": advanced["polyphony"],
+        "slidingTempo": advanced["slidingTempo"],
+        "pedalAnalysis": advanced["pedalAnalysis"],
+    }
+
+
+@app.post("/api/analyze/kde")
+async def kde_analysis(payload: dict):
+    from analysis.timing import gaussian_kde
+    data = payload.get("values", [])
+    num_points = payload.get("numPoints", 200)
+    return {"curve": gaussian_kde(data, num_points)}
+
+
+@app.post("/api/analyze/jitter")
+async def jitter_analysis(payload: dict):
+    notes = payload.get("notes", [])
+    if not notes:
+        return {"maxDrift": 0, "avgDrift": 0, "stdDev": 0, "jitter": 0}
+
+    drifts = [abs(n["gridOffsetMs"]) for n in notes]
+    max_drift = max(drifts)
+    avg = sum(drifts) / len(drifts)
+    variance = sum((d - avg) ** 2 for d in drifts) / len(drifts)
+    std_dev = variance ** 0.5
+
+    diff_sum = sum(abs(drifts[i] - drifts[i - 1]) for i in range(1, len(drifts)))
+    jitter = diff_sum / (len(drifts) - 1) if len(drifts) > 1 else 0
+
+    return {
+        "maxDrift": round(max_drift, 2),
+        "avgDrift": round(avg, 2),
+        "stdDev": round(std_dev, 2),
+        "jitter": round(jitter, 2),
+    }
+
+
+
+
+def _compute_advanced_metrics(notes: list[dict], tempo: float, avg_drift_ms: float) -> dict:
+    if not notes:
+        return {"velocitySpread": None, "polyphony": None, "slidingTempo": None, "pedalAnalysis": None}
+    return {
+        "velocitySpread": compute_velocity_spread(notes),
+        "polyphony": compute_polyphony_metrics(notes),
+        "slidingTempo": compute_fourier_sliding_tempo(notes, tempo, tempo),
+        "pedalAnalysis": analyze_sustain_pedal(notes, tempo, avg_drift_ms),
+    }
+
+@app.post("/api/analyze/advanced")
+async def advanced_analysis(payload: dict):
+    from analysis.advanced import compute_velocity_spread, compute_polyphony_metrics, compute_fourier_sliding_tempo, analyze_sustain_pedal
+    notes = payload.get("notes", [])
+    tempo = payload.get("tempo", 120)
+    avg_drift_ms = payload.get("avgDriftMs", 0)
+    if not notes:
+        return {"velocitySpread": None, "polyphony": None, "slidingTempo": None, "pedalAnalysis": None}
+    velocity_spread = compute_velocity_spread(notes)
+    polyphony = compute_polyphony_metrics(notes)
+    sliding_tempo = compute_fourier_sliding_tempo(notes, tempo, tempo)
+    pedal = analyze_sustain_pedal(notes, tempo, avg_drift_ms)
+    return {
+        "velocitySpread": velocity_spread,
+        "polyphony": polyphony,
+        "slidingTempo": sliding_tempo,
+        "pedalAnalysis": pedal,
+    }
 
 
 # ---------- Static SPA (catch-all) ----------

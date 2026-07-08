@@ -71,297 +71,9 @@ function dateToStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/**
- * Bestimmt die musikalische Tonart (C-Dur, a-Moll, etc.) basierend auf einem
- * vereinfachten Pitch-Class-Häufigkeitsprofil (Krumhansl-Schmuckler Key-Profiles).
- */
-export function detectKey(notes: MidiNote[]): string {
-  if (notes.length === 0) return "Unbekannt";
-
-  // 12 Pitch Classes (C, C#, D, D#, E, F, F#, G, G#, A, A#, H)
-  const pitchWeights = new Array(12).fill(0);
-  notes.forEach(note => {
-    const pc = note.key % 12;
-    // Längere und lautere Noten gewichten wir stärker!
-    const weight = Math.max(0.1, note.duration) * (note.velocity / 100);
-    if (!isNaN(weight)) {
-      pitchWeights[pc] += weight;
-    }
-  });
-
-  // Krumhansl-Schmuckler Key Profiles (Dur & Moll)
-  const majorProfile = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
-  const minorProfile = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
-
-  const noteNamesMajor = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "H"];
-  const noteNamesMinor = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "h"];
-
-  let bestKey = "C-Dur";
-  let maxScore = -Infinity;
-
-  // Suche nach der besten Korrelation über alle 12 Halbtöne für Dur und Moll
-  for (let keyIdx = 0; keyIdx < 12; keyIdx++) {
-    // 1. DUR (Major)
-    let scoreMajor = 0;
-    for (let i = 0; i < 12; i++) {
-      const pitchIdx = (keyIdx + i) % 12;
-      scoreMajor += pitchWeights[pitchIdx] * majorProfile[i];
-    }
-    if (scoreMajor > maxScore) {
-      maxScore = scoreMajor;
-      bestKey = `${noteNamesMajor[keyIdx]}-Dur`;
-    }
-
-    // 2. MOLL (Minor)
-    let scoreMinor = 0;
-    for (let i = 0; i < 12; i++) {
-      const pitchIdx = (keyIdx + i) % 12;
-      scoreMinor += pitchWeights[pitchIdx] * minorProfile[i];
-    }
-    if (scoreMinor > maxScore) {
-      maxScore = scoreMinor;
-      bestKey = `${noteNamesMinor[keyIdx]}-Moll`;
-    }
-  }
-
-  return bestKey;
-}
 
 /**
- * Analysiert eine Liste von MIDI-Noten und extrahiert den tatsächlichen Puls (Spieltempo),
- * klassifiziert den Stil (Melodisch/Harmonisch) und die Struktur (Improvisation/Stück),
- * und re-kalkuliert optional die Microtiming-Abweichungen relativ zum gespielten Puls!
- */
-const MAX_NOTES_ANALYSIS = 2000;
 
-function sampleNotes(notes: MidiNote[], max: number): MidiNote[] {
-  if (notes.length <= max) return notes;
-  const step = notes.length / max;
-  const result: MidiNote[] = [];
-  for (let i = 0; i < max; i++) {
-    result.push(notes[Math.floor(i * step)]);
-  }
-  return result;
-}
-
-function segmentNotesByPause(
-  notes: MidiNote[],
-  nominalTempo: number,
-  minPauseSec: number = 1.0
-): { start: number; end: number; indStart: number; indEnd: number; notes: MidiNote[] }[] {
-  if (notes.length === 0) return [];
-  const sorted = [...notes].sort((a, b) => a.time - b.time);
-  const segments: { start: number; end: number; indStart: number; indEnd: number; notes: MidiNote[] }[] = [];
-  let currentNotes: MidiNote[] = [sorted[0]];
-
-  for (let i = 1; i < sorted.length; i++) {
-    const gapBeats = sorted[i].time - sorted[i - 1].time;
-    const gapSec = gapBeats * (60 / nominalTempo);
-    if (gapSec > minPauseSec) {
-      segments.push({
-        start: currentNotes[0].time,
-        end: currentNotes[currentNotes.length - 1].time,
-        indStart: sorted.indexOf(currentNotes[0]),
-        indEnd: sorted.indexOf(currentNotes[currentNotes.length - 1]),
-        notes: currentNotes
-      });
-      currentNotes = [];
-    }
-    currentNotes.push(sorted[i]);
-  }
-  if (currentNotes.length > 0) {
-    segments.push({
-      start: currentNotes[0].time,
-      end: currentNotes[currentNotes.length - 1].time,
-      indStart: sorted.indexOf(currentNotes[0]),
-      indEnd: sorted.indexOf(currentNotes[currentNotes.length - 1]),
-      notes: currentNotes
-    });
-  }
-  return segments;
-}
-
-function estimateBpmForNotes(notes: MidiNote[], nominalTempo: number): number {
-  if (notes.length < 4) return nominalTempo;
-  const timesInSec = notes.map(n => n.time * (60 / nominalTempo)).sort((a, b) => a - b);
-  const startTime = timesInSec[0];
-  const relativeTimes = timesInSec.map(t => t - startTime);
-  let bestBpm = nominalTempo;
-  let maxScore = -1;
-  for (let bpm = 60; bpm <= 160; bpm += 0.5) {
-    const g = 15 / bpm;
-    let score = 0;
-    for (const t of relativeTimes) {
-      if (t === 0) continue;
-      const nearest = Math.round(t / g) * g;
-      const dist = Math.abs(t - nearest);
-      const sigma = 0.022;
-      score += Math.exp(-(dist * dist) / (2 * sigma * sigma));
-    }
-    const centerFactor = Math.exp(-Math.pow(bpm - 95, 2) / (2 * 40 * 40));
-    const adjustedScore = score * (0.8 + 0.2 * centerFactor);
-    if (adjustedScore > maxScore) {
-      maxScore = adjustedScore;
-      bestBpm = bpm;
-    }
-  }
-  return parseFloat(bestBpm.toFixed(1));
-}
-
-function estimateGridFromNotes(notes: MidiNote[]): number {
-  if (notes.length < 5) return 0.25;
-  const sorted = [...notes].sort((a, b) => a.time - b.time);
-  const intervals: number[] = [];
-  for (let i = 1; i < sorted.length; i++) {
-    const d = sorted[i].time - sorted[i - 1].time;
-    if (d > 0.01 && d < 4) intervals.push(d);
-  }
-  if (intervals.length < 3) return 0.25;
-  const buckets: Map<number, number> = new Map();
-  const candidates = [0.0625, 0.125, 0.1875, 0.25, 0.375, 0.5];
-  for (const iv of intervals) {
-    for (const g of candidates) {
-      const ratio = Math.round(iv / g);
-      if (ratio >= 1 && Math.abs(iv - ratio * g) < g * 0.12) {
-        buckets.set(g, (buckets.get(g) || 0) + 1);
-        break;
-      }
-    }
-  }
-  let bestG = 0.25;
-  let bestN = 0;
-  for (const [g, n] of buckets) {
-    if (n > bestN) { bestN = n; bestG = g; }
-  }
-  return bestG;
-}
-
-function regridNotes(notes: MidiNote[], bpm: number, nominalTempo: number): MidiNote[] {
-  const bpmRatio = bpm / nominalTempo;
-  const msPerBeat = 60000 / bpm;
-  const grid = estimateGridFromNotes(notes);
-  return notes.map(n => {
-    const playedBeats = n.time * bpmRatio;
-    const adjustedDuration = n.duration * bpmRatio;
-    const nearestGrid = Math.round(playedBeats / grid) * grid;
-    const gridOffset = playedBeats - nearestGrid;
-    return {
-      ...n,
-      time: parseFloat(playedBeats.toFixed(4)),
-      duration: parseFloat(adjustedDuration.toFixed(4)),
-      gridOffset: parseFloat(gridOffset.toFixed(4)),
-      gridOffsetMs: parseFloat((gridOffset * msPerBeat).toFixed(2)),
-      nearestGrid: parseFloat(nearestGrid.toFixed(4))
-    };
-  });
-}
-
-export function analyzeSessionMidiStats(
-  rawNotes: MidiNote[],
-  nominalTempo: number
-): {
-  estimatedBpm: number;
-  styleCategory: "Melodisch" | "Harmonisch";
-  structureCategory: "Improvisation" | "Klassisches Stück";
-  estimatedKey: string;
-  notes: MidiNote[];
-  avgDriftMs: number;
-  swingFactor16th: number;
-  bpmSegments: { index: number; startBeat: number; endBeat: number; noteCount: number; bpm: number }[];
-} {
-  if (rawNotes.length === 0) {
-    return {
-      estimatedBpm: nominalTempo,
-      styleCategory: "Melodisch",
-      structureCategory: "Klassisches Stück",
-      estimatedKey: "Unbekannt",
-      notes: rawNotes,
-      avgDriftMs: 0,
-      swingFactor16th: 50.0,
-      bpmSegments: []
-    };
-  }
-
-  const segments = segmentNotesByPause(rawNotes, nominalTempo, 1.0);
-
-  let segmentResults: { bpm: number; notes: MidiNote[] }[] = [];
-  let totalNoteWeight = 0;
-  let weightedBpmSum = 0;
-
-  for (const seg of segments) {
-    const bpm = estimateBpmForNotes(seg.notes, nominalTempo);
-    const regridded = regridNotes(seg.notes, bpm, nominalTempo);
-    segmentResults.push({ bpm, notes: regridded });
-    totalNoteWeight += seg.notes.length;
-    weightedBpmSum += bpm * seg.notes.length;
-  }
-
-  const estimatedBpm = totalNoteWeight > 0
-    ? parseFloat((weightedBpmSum / totalNoteWeight).toFixed(1))
-    : nominalTempo;
-
-  const adjustedNotes = segmentResults.flatMap(r => r.notes);
-
-  // style / structure classification on sampled notes
-  const limitedNotes = sampleNotes(adjustedNotes, MAX_NOTES_ANALYSIS);
-
-  let simultaneousCount = 0;
-  for (let i = 0; i < limitedNotes.length; i++) {
-    const n = limitedNotes[i];
-    const hasOverlap = limitedNotes.some(
-      other => other.id !== n.id && Math.abs(other.time - n.time) * (60 / estimatedBpm) < 0.04
-    );
-    if (hasOverlap) simultaneousCount++;
-  }
-  const overlapRatio = limitedNotes.length > 0 ? simultaneousCount / limitedNotes.length : 0;
-  const styleCategory = overlapRatio > 0.45 ? "Harmonisch" : "Melodisch";
-
-  const velocities = limitedNotes.map(n => n.velocity);
-  const meanVel = velocities.reduce((sum, v) => sum + v, 0) / (velocities.length || 1);
-  const varianceVel = velocities.reduce((sum, v) => sum + Math.pow(v - meanVel, 2), 0) / (velocities.length || 1);
-  const stdDevVel = Math.sqrt(varianceVel);
-
-  const totalDriftMs = adjustedNotes.reduce((sum, n) => sum + Math.abs(n.gridOffsetMs), 0);
-  const avgDriftMs = adjustedNotes.length > 0 ? parseFloat((totalDriftMs / adjustedNotes.length).toFixed(2)) : 0;
-
-  const offbeatNotes = adjustedNotes.filter(n => Math.abs((n.nearestGrid % 0.5) - 0.25) < 0.001);
-  let swingFactor16th = 50.0;
-  if (offbeatNotes.length > 0) {
-    const totalSwing = offbeatNotes.reduce((sum, n) => {
-      const posInDouble16th = n.time % 0.5;
-      const percentage = (posInDouble16th / 0.5) * 100;
-      return sum + percentage;
-    }, 0);
-    swingFactor16th = parseFloat((totalSwing / offbeatNotes.length).toFixed(1));
-    if (swingFactor16th < 30 || swingFactor16th > 80) {
-      swingFactor16th = 50.0;
-    }
-  }
-
-  const structureCategory = (stdDevVel > 15.0 || avgDriftMs > 13.0) ? "Improvisation" : "Klassisches Stück";
-  const estimatedKey = detectKey(adjustedNotes);
-
-  const bpmSegments = segments.map((s, i) => ({
-    index: i,
-    startBeat: parseFloat(s.start.toFixed(2)),
-    endBeat: parseFloat(s.end.toFixed(2)),
-    noteCount: s.notes.length,
-    bpm: segmentResults[i]?.bpm ?? nominalTempo
-  }));
-
-  return {
-    estimatedBpm,
-    styleCategory,
-    structureCategory,
-    estimatedKey,
-    notes: adjustedNotes,
-    avgDriftMs,
-    swingFactor16th,
-    bpmSegments
-  };
-}
-
-/**
  * Analysiert eine Audio-Datei (z.B. MP3, WAV, M4A, CAF) oder ein GarageBand-Projekt
  * und extrahiert die tatsächlichen Spiel-Timings (Anschlagmomente) direkt aus der Wellenform.
  * Da die Audios frei ohne Klick eingespielt wurden, wird dieses echte Spieltempo zurückanalysiert.
@@ -486,8 +198,6 @@ export async function parseAudioPerformanceFile(file: File): Promise<AlsFileStat
     };
   });
   
-  // 5. Statistiken basierend auf dem echten Spieltempo kalkulieren!
-  const analysis = analyzeSessionMidiStats(notes, 120.0);
   const fdt = extractFileDateTime(file);
   
   return {
@@ -495,17 +205,12 @@ export async function parseAudioPerformanceFile(file: File): Promise<AlsFileStat
     date: fdt.date,
     time: fdt.time,
     weekday: fdt.weekday,
-    tempo: parseFloat(analysis.estimatedBpm.toFixed(1)),
+    tempo: 120.0,
     notesCount: notes.length,
     avgVelocity: Math.round(notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length),
-    avgDriftMs: analysis.avgDriftMs,
-    swingFactor16th: analysis.swingFactor16th,
-    notes: analysis.notes,
-    estimatedBpm: analysis.estimatedBpm,
-    styleCategory: analysis.styleCategory,
-    structureCategory: analysis.structureCategory,
-    estimatedKey: analysis.estimatedKey,
-    bpmSegments: analysis.bpmSegments
+    avgDriftMs: 0,
+    swingFactor16th: 50.0,
+    notes,
   };
 }
 
@@ -551,24 +256,17 @@ export function parseAudioFallback(file: File): AlsFileStats {
     });
   }
   
-  const analysis = analyzeSessionMidiStats(notes, 120.0);
-  
   return {
     fileName: file.name,
     date: fdt.date,
     time: fdt.time,
     weekday: fdt.weekday,
-    tempo: parseFloat(analysis.estimatedBpm.toFixed(1)),
+    tempo: 120.0,
     notesCount: notes.length,
     avgVelocity: Math.round(notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length),
-    avgDriftMs: analysis.avgDriftMs,
-    swingFactor16th: analysis.swingFactor16th,
-    notes: analysis.notes,
-    estimatedBpm: analysis.estimatedBpm,
-    styleCategory: analysis.styleCategory,
-    structureCategory: analysis.structureCategory,
-    estimatedKey: analysis.estimatedKey,
-    bpmSegments: analysis.bpmSegments
+    avgDriftMs: 0,
+    swingFactor16th: 50.0,
+    notes,
   };
 }
 
@@ -652,23 +350,17 @@ async function parseBandFile(file: File): Promise<AlsFileStats> {
     };
   });
 
-  const analysis = analyzeSessionMidiStats(notes, avgTempo);
-
   return {
     fileName: file.name,
     date: now.toISOString().split('T')[0],
     time: `${hh}:${mm}`,
     weekday: now.getDay(),
-    tempo: avgTempo,
-    estimatedBpm: analysis.estimatedBpm,
+    tempo: parseFloat(avgTempo.toFixed(2)),
     notesCount: notes.length,
-    avgVelocity: notes.length > 0
-      ? Math.round(notes.reduce((s, n) => s + n.velocity, 0) / notes.length)
-      : 0,
-    avgDriftMs: analysis.avgDriftMs,
-    swingFactor16th: analysis.swingFactor16th,
-    estimatedKey: analysis.estimatedKey,
-    notes: analysis.notes,
+    avgVelocity: Math.round(notes.reduce((s, n) => s + n.velocity, 0) / notes.length),
+    avgDriftMs: 0,
+    swingFactor16th: 50.0,
+    notes,
   };
 }
 
@@ -751,30 +443,21 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
 
           notes.sort((a, b) => a.time - b.time);
 
-          const notesCount = notes.length;
-          const totalVel = notes.reduce((sum, n) => sum + n.velocity, 0);
-          const avgVelocity = notesCount > 0 ? Math.round(totalVel / notesCount) : 100;
-          const fdt = extractFileDateTime(file);
-          const analysis = analyzeSessionMidiStats(notes, tempo);
+        const fdt = extractFileDateTime(file);
 
-          resolve({
-            fileName: file.name,
-            date: fdt.date,
-            time: fdt.time,
-            weekday: fdt.weekday,
-            tempo: parseFloat(tempo.toFixed(2)),
-            notesCount,
-            avgVelocity,
-            avgDriftMs: analysis.avgDriftMs,
-            swingFactor16th: analysis.swingFactor16th,
-            notes: analysis.notes,
-            estimatedBpm: analysis.estimatedBpm,
-            styleCategory: analysis.styleCategory,
-            structureCategory: analysis.structureCategory,
-            estimatedKey: analysis.estimatedKey,
-            bpmSegments: analysis.bpmSegments
-          });
-          return;
+        resolve({
+          fileName: file.name,
+          date: fdt.date,
+          time: fdt.time,
+          weekday: fdt.weekday,
+          tempo: parseFloat(tempo.toFixed(2)),
+          notesCount: notes.length,
+          avgVelocity: notes.length > 0 ? Math.round(notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length) : 100,
+          avgDriftMs: 0,
+          swingFactor16th: 50.0,
+          notes,
+        });
+        return;
         }
 
         // Standard-Pfad: Ableton Live .als Parsing (unzip + xml-parse)
@@ -1259,11 +942,7 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
           }
         }
 
-        const notesCount = notes.length;
-        const totalVel = notes.reduce((sum, n) => sum + n.velocity, 0);
-        const avgVelocity = notesCount > 0 ? Math.round(totalVel / notesCount) : 100;
         const fdt = extractFileDateTime(file);
-        const analysis = analyzeSessionMidiStats(notes, tempo);
 
         resolve({
           fileName: file.name,
@@ -1271,16 +950,11 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
           time: fdt.time,
           weekday: fdt.weekday,
           tempo: parseFloat(tempo.toFixed(2)),
-          notesCount,
-          avgVelocity,
-          avgDriftMs: analysis.avgDriftMs,
-          swingFactor16th: analysis.swingFactor16th,
-          notes: analysis.notes,
-          estimatedBpm: analysis.estimatedBpm,
-          styleCategory: analysis.styleCategory,
-          structureCategory: analysis.structureCategory,
-          estimatedKey: analysis.estimatedKey,
-          bpmSegments: analysis.bpmSegments
+          notesCount: notes.length,
+          avgVelocity: notes.length > 0 ? Math.round(notes.reduce((sum, n) => sum + n.velocity, 0) / notes.length) : 100,
+          avgDriftMs: 0,
+          swingFactor16th: 50.0,
+          notes,
         });
 
       } catch (error) {
@@ -1294,123 +968,6 @@ export async function parseAlsFile(file: File): Promise<AlsFileStats> {
 
     reader.readAsArrayBuffer(file);
   });
-}
-
-/**
- * Teacher/Student Split mittels k-means Clustering (k=2) auf |gridOffsetMs|.
- * Der Cluster mit dem niedrigeren durchschnittlichen Drift = Lehrer,
- * der mit dem höheren Drift = Schüler.
- */
-export function separateTeacherStudent(notes: MidiNote[]): {
-  teacher: MidiNote[];
-  student: MidiNote[];
-  teacherNoteCount: number;
-  studentNoteCount: number;
-  teacherAvgDriftMs: number;
-  studentAvgDriftMs: number;
-} {
-  if (notes.length < 4) {
-    return {
-      teacher: notes, student: [],
-      teacherNoteCount: notes.length, studentNoteCount: 0,
-      teacherAvgDriftMs: notes.length > 0 ? notes.reduce((s, n) => s + Math.abs(n.gridOffsetMs), 0) / notes.length : 0,
-      studentAvgDriftMs: 0
-    };
-  }
-
-  const drifts = notes.map(n => Math.abs(n.gridOffsetMs));
-  const sorted = [...drifts].sort((a, b) => a - b);
-
-  // Initialize k-means (k=2)
-  let c1 = sorted[Math.floor(sorted.length * 0.2)]; // lower cluster start
-  let c2 = sorted[Math.floor(sorted.length * 0.8)]; // upper cluster start
-  if (c1 === c2) { c2 = c1 + 1; }
-
-  let assignments = new Array(notes.length).fill(0);
-  for (let iter = 0; iter < 20; iter++) {
-    // Assign
-    let changed = false;
-    for (let i = 0; i < drifts.length; i++) {
-      const d = drifts[i];
-      const dist1 = Math.abs(d - c1);
-      const dist2 = Math.abs(d - c2);
-      const newAssign = dist1 <= dist2 ? 0 : 1;
-      if (newAssign !== assignments[i]) changed = true;
-      assignments[i] = newAssign;
-    }
-    if (!changed) break;
-    // Update centroids
-    const sum1 = drifts.reduce((s, d, i) => s + (assignments[i] === 0 ? d : 0), 0);
-    const cnt1 = assignments.filter(a => a === 0).length;
-    const sum2 = drifts.reduce((s, d, i) => s + (assignments[i] === 1 ? d : 0), 0);
-    const cnt2 = assignments.filter(a => a === 1).length;
-    if (cnt1 > 0) c1 = sum1 / cnt1;
-    if (cnt2 > 0) c2 = sum2 / cnt2;
-  }
-
-  // Ensure teacher is the lower-drift cluster
-  const teacherIsCluster0 = c1 <= c2;
-  const teacherNotes: MidiNote[] = [];
-  const studentNotes: MidiNote[] = [];
-  for (let i = 0; i < notes.length; i++) {
-    if ((teacherIsCluster0 && assignments[i] === 0) || (!teacherIsCluster0 && assignments[i] === 1)) {
-      teacherNotes.push(notes[i]);
-    } else {
-      studentNotes.push(notes[i]);
-    }
-  }
-
-  const teacherAvgDrift = teacherNotes.length > 0
-    ? teacherNotes.reduce((s, n) => s + Math.abs(n.gridOffsetMs), 0) / teacherNotes.length : 0;
-  const studentAvgDrift = studentNotes.length > 0
-    ? studentNotes.reduce((s, n) => s + Math.abs(n.gridOffsetMs), 0) / studentNotes.length : 0;
-
-  return {
-    teacher: teacherNotes,
-    student: studentNotes,
-    teacherNoteCount: teacherNotes.length,
-    studentNoteCount: studentNotes.length,
-    teacherAvgDriftMs: parseFloat(teacherAvgDrift.toFixed(2)),
-    studentAvgDriftMs: parseFloat(studentAvgDrift.toFixed(2))
-  };
-}
-
-/**
- * Focus Score: 0-100 Qualitätskennzahl pro Session.
- * Gewichtung: Drift (30%) + Velocity-Spread (25%) + BPM-Stabilität (20%) + Polyphonie (15%) + Pedal (10%)
- */
-export function computeFocusScore(session: AlsFileStats): number {
-  const driftRaw = session.avgDriftMs || 0;
-  const driftScore = Math.max(0, Math.min(100, 100 - driftRaw * 3));
-
-  let velScore = 50;
-  if (session.velocitySpread) {
-    const spread = session.velocitySpread.velocityStdDev || 0;
-    velScore = Math.min(100, spread * 5 + 20);
-  }
-
-  let bpmScore = 80;
-  if (session.bpmSegments && session.bpmSegments.length > 1) {
-    const bpms = session.bpmSegments.map(s => s.bpm);
-    const avg = bpms.reduce((a, b) => a + b, 0) / bpms.length;
-    const variance = bpms.reduce((s, v) => s + Math.pow(v - avg, 2), 0) / bpms.length;
-    const stdDev = Math.sqrt(variance);
-    bpmScore = Math.max(20, Math.min(100, 100 - stdDev * 5));
-  }
-
-  let polyScore = 50;
-  if (session.polyphony) {
-    const chordRatio = session.polyphony.chordRatio || 0;
-    polyScore = Math.min(100, chordRatio * 1.2 + 40);
-  }
-
-  let pedalScore = 50;
-  if (session.pedalAnalysis) {
-    pedalScore = session.pedalAnalysis.accuracyScore || 50;
-  }
-
-  const score = driftScore * 0.30 + velScore * 0.25 + bpmScore * 0.20 + polyScore * 0.15 + pedalScore * 0.10;
-  return Math.round(Math.max(0, Math.min(100, score)));
 }
 
 /**

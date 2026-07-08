@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { MidiNote, AlsFileStats, ChartDataEntry } from '../types';
 import { chart as chartTheme, accent, text as textTheme, bg } from '../theme';
 import {
@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 import { Activity, Flame, Volume2, Music, Sparkles } from 'lucide-react';
 import { CustomResponsiveContainer } from './CustomResponsiveContainer';
+import { computeKde } from '../backendApi';
 
 interface SvgChartsProps {
   data: AlsFileStats[];
@@ -246,40 +247,26 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
   }, [histBass, histTreble, histAll]);
 
   // --- KDE (Kernel Density Estimate) for smooth violin-curve ---
-  function gaussianKde(data: number[], numPoints: number): { x: number; y: number }[] {
-    const n = data.length;
-    if (n < 2) return [];
-    const sorted = [...data].sort((a, b) => a - b);
-    const minX = sorted[0];
-    const maxX = sorted[n - 1];
-    const range = maxX - minX || 1;
-    const h = 1.06 * Math.sqrt(data.reduce((s, v) => s + (v - data.reduce((a,b) => a+b, 0) / n) ** 2, 0) / n) * Math.pow(n, -0.2);
-    const bandwidth = Math.max(h, 1.5);
-    const step = range / numPoints;
-    const result: { x: number; y: number }[] = [];
-    const invNh = 1 / (n * bandwidth);
-    const sqrt2pi = Math.sqrt(2 * Math.PI);
-    for (let i = 0; i <= numPoints; i++) {
-      const x = minX + i * step;
-      let sum = 0;
-      for (const xi of data) {
-        const u = (x - xi) / bandwidth;
-        sum += Math.exp(-0.5 * u * u) / sqrt2pi;
-      }
-      result.push({ x, y: sum * invNh });
-    }
-    return result;
-  }
+  const [kdePoints, setKdePoints] = useState<{ all: { x: number; y: number }[]; bass: { x: number; y: number }[]; treble: { x: number; y: number }[] }>({ all: [], bass: [], treble: [] });
 
-  const kdePoints = useMemo(() => {
-    const allOffsets = filteredNotesForHistogram.map(n => n.gridOffsetMs);
-    const bassOffsets = registerSplit.bassNotes.map(n => n.gridOffsetMs);
-    const trebleOffsets = registerSplit.trebleNotes.map(n => n.gridOffsetMs);
-    return {
-      all: gaussianKde(allOffsets, 200),
-      bass: bassOffsets.length > 50 ? gaussianKde(bassOffsets, 200) : [],
-      treble: trebleOffsets.length > 50 ? gaussianKde(trebleOffsets, 200) : [],
-    };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const allOffsets = filteredNotesForHistogram.map(n => n.gridOffsetMs);
+      const bassOffsets = registerSplit.bassNotes.map(n => n.gridOffsetMs);
+      const trebleOffsets = registerSplit.trebleNotes.map(n => n.gridOffsetMs);
+      try {
+        const [all, bass, treble] = await Promise.all([
+          computeKde(allOffsets, 200),
+          bassOffsets.length > 50 ? computeKde(bassOffsets, 200) : Promise.resolve([]),
+          trebleOffsets.length > 50 ? computeKde(trebleOffsets, 200) : Promise.resolve([]),
+        ]);
+        if (!cancelled) setKdePoints({ all, bass, treble });
+      } catch {
+        if (!cancelled) setKdePoints({ all: [], bass: [], treble: [] });
+      }
+    })();
+    return () => { cancelled = true; };
   }, [filteredNotesForHistogram, registerSplit]);
 
   const maxKdeY = useMemo(() => {
@@ -455,8 +442,8 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
     const maxBeat = times.length > 0 ? times.reduce((a, b) => Math.max(a, b), 1) : 1;
     const numBars = Math.ceil(maxBeat / 4);
     
-    // Initialisiere die Takte von 1 bis numBars (Sicherung bei maximal 256 Takten für gute Chartdarstellung)
-    const barsCount = Math.min(numBars, 256);
+    // Initialisiere die Takte von 1 bis numBars (Sicherung bei maximal 2000 Takten)
+    const barsCount = Math.min(numBars, 2000);
     const bars = Array.from({ length: barsCount }, (_, i) => ({
       barNum: i + 1,
       notesCount: 0,
@@ -966,15 +953,37 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
 
         </div>
 
-        <div className="mt-4 p-2.5 bg-slate-800/60 border border-slate-600 rounded text-slate-300 text-[10px] font-mono flex items-start gap-2">
+        {/* Note Density Strip - horizontal heatmap */}
+        <div className="mt-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">Piano-Roll Dichte</span>
+            <span className="text-[8px] text-slate-500 font-mono">dunkler = häufiger</span>
+          </div>
+          <div className="flex gap-0.5 overflow-x-auto pb-1" style={{ flexWrap: 'wrap' }}>
+            {pianoNotesStatus.map((item) => (
+              <div
+                key={item.key}
+                className="w-6 h-5 flex items-center justify-center text-[7px] font-mono font-bold rounded-sm cursor-pointer hover:ring-1 hover:ring-slate-400 shrink-0"
+                style={{
+                  backgroundColor: `rgba(99, 102, 241, ${0.08 + item.intensity * 0.82})`,
+                  color: item.intensity > 0.5 ? 'white' : '#475569',
+                }}
+                title={`${item.name}: ${item.count} mal`}
+                onClick={() => setSelectedNoteKey(selectedNoteKey === item.key ? null : item.key)}
+              >
+                {item.name}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-3 p-2.5 bg-slate-800/60 border border-slate-600 rounded text-slate-300 text-[10px] font-mono flex items-start gap-2">
           <span>💡</span>
           <span>Tiefe Noten (C2–C3) zeigen oft einen stabileren Groove als hohe Lagen.</span>
         </div>
       </div>
 
     </div>
-
-      {/* Untere Reihe: Neue Notendichte Line/Area-Grafik & Anschlagsstärke Heatmap */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" id="svg-new-charts-container">
         
         {/* A. Notendichte Liniendiagramm */}

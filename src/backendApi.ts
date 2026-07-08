@@ -48,6 +48,13 @@ export async function saveSessionToCloud(session: AlsFileStats): Promise<string>
   return data.id;
 }
 
+function isFalsyStructuredField(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) return true;
+  if (Array.isArray(v) && v.length === 0) return true;
+  return false;
+}
+
 function mapSessionItem(item: Record<string, unknown>, notes: AlsFileStats["notes"]): AlsFileStats {
   return {
     cloudDocId: item["id"] as string,
@@ -66,10 +73,10 @@ function mapSessionItem(item: Record<string, unknown>, notes: AlsFileStats["note
     structureCategory: (item["structureCategory"] as AlsFileStats["structureCategory"]) || "Klassisches Stück",
     focusScore: item["focusScore"] ? Number(item["focusScore"]) : undefined,
     teacherStudentSplit: item["teacherStudentSplit"] as AlsFileStats["teacherStudentSplit"],
-    velocitySpread: item["velocitySpread"] as AlsFileStats["velocitySpread"],
-    polyphony: item["polyphony"] as AlsFileStats["polyphony"],
-    slidingTempo: item["slidingTempo"] as AlsFileStats["slidingTempo"],
-    pedalAnalysis: item["pedalAnalysis"] as AlsFileStats["pedalAnalysis"],
+    velocitySpread: isFalsyStructuredField(item["velocitySpread"]) ? undefined : (item["velocitySpread"] as AlsFileStats["velocitySpread"]),
+    polyphony: isFalsyStructuredField(item["polyphony"]) ? undefined : (item["polyphony"] as AlsFileStats["polyphony"]),
+    slidingTempo: isFalsyStructuredField(item["slidingTempo"]) ? undefined : (item["slidingTempo"] as AlsFileStats["slidingTempo"]),
+    pedalAnalysis: isFalsyStructuredField(item["pedalAnalysis"]) ? undefined : (item["pedalAnalysis"] as AlsFileStats["pedalAnalysis"]),
     notes,
   };
 }
@@ -108,10 +115,10 @@ export async function loadSessionNotesFromCloud(docId: string): Promise<{
   return {
     notes,
     teacherStudentSplit: session["teacherStudentSplit"] as AlsFileStats["teacherStudentSplit"],
-    velocitySpread: session["velocitySpread"] as AlsFileStats["velocitySpread"],
-    polyphony: session["polyphony"] as AlsFileStats["polyphony"],
-    slidingTempo: session["slidingTempo"] as AlsFileStats["slidingTempo"],
-    pedalAnalysis: session["pedalAnalysis"] as AlsFileStats["pedalAnalysis"],
+    velocitySpread: isFalsyStructuredField(session["velocitySpread"]) ? undefined : (session["velocitySpread"] as AlsFileStats["velocitySpread"]),
+    polyphony: isFalsyStructuredField(session["polyphony"]) ? undefined : (session["polyphony"] as AlsFileStats["polyphony"]),
+    slidingTempo: isFalsyStructuredField(session["slidingTempo"]) ? undefined : (session["slidingTempo"] as AlsFileStats["slidingTempo"]),
+    pedalAnalysis: isFalsyStructuredField(session["pedalAnalysis"]) ? undefined : (session["pedalAnalysis"] as AlsFileStats["pedalAnalysis"]),
   };
 }
 
@@ -124,3 +131,53 @@ export async function deleteSessionFromCloud(docId: string): Promise<void> {
     throw new Error(`Backend-Fehler beim Löschen (${res.status}): ${text}`);
   }
 }
+
+export async function computeKde(values: number[], numPoints = 200): Promise<{ x: number; y: number }[]> {
+  const res = await fetch("/api/analyze/kde", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ values, numPoints }),
+  });
+  if (!res.ok) throw new Error(`KDE-Fehler (${res.status})`);
+  const data = await res.json();
+  return data.curve;
+}
+
+export interface JitterMetrics {
+  maxDrift: number;
+  avgDrift: number;
+  stdDev: number;
+  jitter: number;
+}
+
+export async function computeJitterMetrics(notes: { gridOffsetMs: number }[]): Promise<JitterMetrics> {
+  const res = await fetch("/api/analyze/jitter", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notes }),
+  });
+  if (!res.ok) throw new Error(`Jitter-Fehler (${res.status})`);
+  return res.json();
+}
+
+export interface AdvancedMetrics {
+  velocitySpread: AlsFileStats["velocitySpread"];
+  polyphony: AlsFileStats["polyphony"];
+  slidingTempo: AlsFileStats["slidingTempo"];
+  pedalAnalysis: AlsFileStats["pedalAnalysis"];
+}
+
+export async function computeAdvancedMetrics(
+  notes: AlsFileStats["notes"],
+  tempo: number,
+  avgDriftMs: number
+): Promise<AdvancedMetrics> {
+  const res = await fetch("/api/analyze/advanced", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notes, tempo, avgDriftMs }),
+  });
+  if (!res.ok) throw new Error(`Advanced-Fehler (${res.status})`);
+  return res.json();
+}
+

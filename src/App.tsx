@@ -32,7 +32,7 @@ import {
   User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { parseAlsFile, convertToCsv, generateSqlScript, analyzeSessionMidiStats, separateTeacherStudent, computeFocusScore } from './alsParser';
+import { parseAlsFile, convertToCsv, generateSqlScript } from './alsParser';
 import { AlsFileStats, ChartDataEntry, ScheduleEntry } from './types';
 import { SvgCharts } from './components/SvgCharts';
 import { pythonScriptText } from './pythonScriptText';
@@ -100,7 +100,7 @@ export default function App() {
         if (cloudSessions.length > 0) {
           const enriched = cloudSessions.map(enrichSessionWithAdvancedMetrics);
           setLoadedFiles(enriched);
-          setCloudSyncMessage(`📂 ${cloudSessions.length} Sitzungen geladen. Klick auf eine Session oder \"ALLE AUS DB LADEN\" für Noten.`);
+          setCloudSyncMessage(`📂 ${cloudSessions.length} Sitzungen geladen. Lade Noten im Hintergrund...`);
         } else {
           setCloudSyncMessage("ℹ️ Keine Sitzungen in der Datenbank.");
         }
@@ -163,6 +163,64 @@ export default function App() {
     }
     loadNotesForSelection();
   }, [selectedFileIdx]);
+
+  // Batch-load notes for all cloud sessions that lack them
+  const [isLoadingAllNotes, setIsLoadingAllNotes] = useState<boolean>(false);
+  const batchLoadRef = useRef<number>(0);
+  useEffect(() => {
+    const sessionsWithoutNotes = loadedFiles.filter(s => s.cloudDocId && s.notes.length === 0);
+    if (sessionsWithoutNotes.length === 0 || isLoadingAllNotes) return;
+    if (selectedFileIdx !== null) return; // single-session mode: lazy-load handles it
+
+    let cancelled = false;
+    const currentBatch = ++batchLoadRef.current;
+
+    async function loadBatch() {
+      setIsLoadingAllNotes(true);
+      setCloudSyncMessage(`📥 Lade Noten für ${sessionsWithoutNotes.length} Sitzungen...`);
+      const concurrency = 3;
+      for (let i = 0; i < sessionsWithoutNotes.length; i += concurrency) {
+        if (cancelled || currentBatch !== batchLoadRef.current) return;
+        const batch = sessionsWithoutNotes.slice(i, i + concurrency);
+        await Promise.all(batch.map(async (session) => {
+          try {
+            const sessionData = await loadSessionNotesFromCloud(session.cloudDocId!);
+            if (cancelled || currentBatch !== batchLoadRef.current) return;
+            setLoadedFiles(prev => {
+              const copy = [...prev];
+              const idx = copy.findIndex(f => f.cloudDocId === session.cloudDocId);
+              if (idx !== -1) {
+                const updated = {
+                  ...copy[idx],
+                  notes: sessionData.notes,
+                  notesCount: sessionData.notes.length,
+                  teacherStudentSplit: sessionData.teacherStudentSplit,
+                  velocitySpread: sessionData.velocitySpread,
+                  polyphony: sessionData.polyphony,
+                  slidingTempo: sessionData.slidingTempo,
+                  pedalAnalysis: sessionData.pedalAnalysis,
+                };
+                copy[idx] = enrichSessionWithAdvancedMetrics(updated);
+              }
+              return copy;
+            });
+          } catch (err) {
+            console.warn(`Fehler beim Laden der Noten für ${session.fileName}:`, err);
+          }
+        }));
+        if (!cancelled && currentBatch === batchLoadRef.current) {
+          const done = Math.min(i + concurrency, sessionsWithoutNotes.length);
+          setCloudSyncMessage(`📥 Lade Noten... ${done}/${sessionsWithoutNotes.length}`);
+        }
+      }
+      if (!cancelled && currentBatch === batchLoadRef.current) {
+        setIsLoadingAllNotes(false);
+        setTimeout(() => setCloudSyncMessage(null), 3000);
+      }
+    }
+    loadBatch();
+    return () => { cancelled = true; };
+  }, [loadedFiles.length, selectedFileIdx]);
   const handleSaveToCloud = async (session: AlsFileStats, index: number) => {
     setIsCloudSaving(session.fileName);
     setCloudSyncMessage(`Speichere '${session.fileName}'...`);
@@ -472,37 +530,26 @@ export default function App() {
           }
         }
 
-        // Fallback: Komplett client-seitig (.band, .zip, audio)
+        // Fallback: Client-seitig parsen, Server-seitig analysieren (.band, .zip, audio)
         setProcessingProgress(`Lese ${i + 1}/${sortedFiles.length}: ${file.name} (clientseitig)...`);
         const raw = await parseAlsFile(file);
-        await new Promise(r => setTimeout(r, 0));
 
-        setProcessingProgress(`BPM-Analyse ${i + 1}/${sortedFiles.length}: ${file.name}`);
-        const analysis = analyzeSessionMidiStats(raw.notes, raw.tempo);
-        const merged: AlsFileStats = {
-          ...raw,
-          estimatedBpm: analysis.estimatedBpm,
-          avgDriftMs: analysis.avgDriftMs,
-          swingFactor16th: analysis.swingFactor16th,
-          notes: analysis.notes,
-          styleCategory: analysis.styleCategory,
-          structureCategory: analysis.structureCategory,
-          estimatedKey: analysis.estimatedKey,
-          bpmSegments: analysis.bpmSegments
-        };
-        await new Promise(r => setTimeout(r, 0));
-
-        setProcessingProgress(`Feinanalyse ${i + 1}/${sortedFiles.length}: ${file.name}`);
-        const enriched = enrichSessionWithAdvancedMetrics(merged);
-
-        setProcessingProgress(`Lehrer/Schüler-Split ${i + 1}/${sortedFiles.length}: ${file.name}`);
-        const split = separateTeacherStudent(enriched.notes);
-        enriched.teacherStudentSplit = split;
-
-        enriched.focusScore = computeFocusScore(enriched);
-
-        parsedSessions.push(enriched);
-        await new Promise(r => setTimeout(r, 0));
+        setProcessingProgress(`Server-Analyse ${i + 1}/${sortedFiles.length}: ${file.name}`);
+        const res2 = await fetch('/api/analyze/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: file.name,
+            notes: raw.notes,
+            tempo: raw.tempo,
+          }),
+        });
+        if (res2.ok) {
+          const serverResult = await res2.json();
+          const session = buildSessionFromServerResult({ id: '', ...serverResult });
+          const enriched = enrichSessionWithAdvancedMetrics(session);
+          parsedSessions.push(enriched);
+        }
       } catch (err: any) {
         console.error(err);
         setErrorString(`Fehler beim Verarbeiten von '${file.name}': ${err.message || err}.`);
@@ -624,18 +671,16 @@ export default function App() {
     return activeViewSessions.map(session => {
       const enriched = session.notes.length > 0 ? enrichSessionWithAdvancedMetrics(session) : session;
       const matchedNotes = enriched.notes.filter(note => note.velocity >= minVelocity && note.velocity <= maxVelocity);
-      const avgVelocity = matchedNotes.length > 0 
-        ? Math.round(matchedNotes.reduce((sum, n) => sum + n.velocity, 0) / matchedNotes.length) 
-        : 0;
-      const avgDriftMs = matchedNotes.length > 0 
-        ? matchedNotes.reduce((sum, n) => sum + n.gridOffsetMs, 0) / matchedNotes.length 
-        : 0;
       return {
         ...enriched,
         notes: matchedNotes,
         notesCount: enriched.notes.length > 0 ? matchedNotes.length : enriched.notesCount,
-        avgVelocity,
-        avgDriftMs
+        avgVelocity: matchedNotes.length > 0
+          ? Math.round(matchedNotes.reduce((sum, n) => sum + n.velocity, 0) / matchedNotes.length)
+          : (enriched.notes.length === 0 ? enriched.avgVelocity : 0),
+        avgDriftMs: matchedNotes.length > 0
+          ? matchedNotes.reduce((sum, n) => sum + n.gridOffsetMs, 0) / matchedNotes.length
+          : (enriched.notes.length === 0 ? enriched.avgDriftMs : 0),
       };
     });
   }, [activeViewSessions, minVelocity, maxVelocity]);
@@ -1146,7 +1191,7 @@ export default function App() {
             id="stats-boards"
           >
             
-            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between" id="card-sessions">
+            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between overflow-hidden" id="card-sessions">
               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">Sessions</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-3xl font-light leading-none text-white">
@@ -1160,7 +1205,7 @@ export default function App() {
               </div>
             </motion.div>
 
-            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between" id="card-midi">
+            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between overflow-hidden" id="card-midi">
               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">MIDI Events</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-3xl font-light leading-none text-white">
@@ -1174,7 +1219,7 @@ export default function App() {
               </div>
             </motion.div>
 
-            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between" id="card-drift">
+            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between overflow-hidden" id="card-drift">
               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">Drift-Abw</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-3xl font-light leading-none text-red-400 font-bold">
@@ -1188,7 +1233,7 @@ export default function App() {
               </div>
             </motion.div>
 
-            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between" id="card-swing">
+            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between overflow-hidden" id="card-swing">
               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">Swing (μ)</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-3xl font-light leading-none text-white">
@@ -1202,7 +1247,7 @@ export default function App() {
               </div>
             </motion.div>
 
-            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 col-span-2 lg:col-span-1 flex flex-col justify-between" id="card-tempo">
+            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 col-span-2 lg:col-span-1 flex flex-col justify-between overflow-hidden" id="card-tempo">
               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">Tempo (ø)</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-3xl font-light leading-none text-white">
@@ -1215,7 +1260,7 @@ export default function App() {
                 PROJECT SPEED
               </div>
             </motion.div>
-            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between" id="card-focus">
+            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between overflow-hidden" id="card-focus">
               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">Focus Score (ø)</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className="text-3xl font-light leading-none text-indigo-300">

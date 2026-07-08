@@ -13,8 +13,12 @@ from typing import Any
 import numpy as np
 import mido
 
-
-NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
+from analysis.timing import estimate_grid
+from analysis.swing import estimate_swing
+from analysis.key import estimate_key, NOTE_NAMES
+from analysis.style import classify_style
+from analysis.separation import separate_teacher_student
+from analysis.focus import compute_focus_score
 
 
 def note_name(key: float) -> str:
@@ -293,7 +297,7 @@ def analyze_notes(notes: list[dict], nominal_tempo: float) -> dict[str, Any]:
     
     estimated_bpm = round(best_bpm, 1)
     
-    grid = _estimate_grid(times)
+    grid = estimate_grid(times)
     ms_per_beat = 60000.0 / estimated_bpm
     bpm_ratio = estimated_bpm / nominal_tempo
     
@@ -318,12 +322,12 @@ def analyze_notes(notes: list[dict], nominal_tempo: float) -> dict[str, Any]:
     if len(intervals) > 0:
         beats_per_sec = estimated_bpm / 60.0
         intervals_beats = intervals * beats_per_sec
-        swing = _estimate_swing(intervals_beats)
+        swing = estimate_swing(intervals_beats)
     else:
         swing = 50.0
     
-    key = _estimate_key(notes)
-    style, structure = _classify_style(notes, avg_drift, len(notes))
+    key = estimate_key(notes)
+    style, structure = classify_style(notes, avg_drift, len(notes))
     
     return {
         'estimatedBpm': estimated_bpm,
@@ -334,101 +338,6 @@ def analyze_notes(notes: list[dict], nominal_tempo: float) -> dict[str, Any]:
         'structureCategory': structure,
         'notes': adjusted_notes,
     }
-
-
-def _estimate_grid(times: np.ndarray) -> float:
-    if len(times) < 5:
-        return 0.25
-    sorted_t = np.sort(times)
-    intervals = np.diff(sorted_t)
-    intervals = intervals[(intervals > 0.01) & (intervals < 4.0)]
-    if len(intervals) < 3:
-        return 0.25
-    candidates = [0.0625, 0.125, 0.1875, 0.25, 0.375, 0.5]
-    best_g = 0.25
-    best_n = 0
-    for g in candidates:
-        ratios = np.round(intervals / g)
-        mask = (ratios >= 1) & (np.abs(intervals - ratios * g) < g * 0.12)
-        n = int(np.sum(mask))
-        if n > best_n:
-            best_n = n
-            best_g = g
-    return best_g
-
-
-def _estimate_swing(intervals_beats: np.ndarray) -> float:
-    if len(intervals_beats) < 10:
-        return 50.0
-    pairs = intervals_beats[::2]
-    off_pairs = intervals_beats[1::2]
-    if len(pairs) == 0 or len(off_pairs) == 0:
-        return 50.0
-    ratio = float(np.median(off_pairs[:len(pairs)]) / np.median(pairs))
-    swing = np.clip(ratio * 100.0, 25.0, 75.0)
-    return swing
-
-
-def _estimate_key(notes: list[dict]) -> str:
-    if not notes:
-        return 'Unbekannt'
-    keys = np.array([round(n['key']) % 12 for n in notes])
-    hist = np.zeros(12, dtype=np.float64)
-    for k in range(12):
-        hist[k] = float(np.sum(keys == k))
-    if np.max(hist) == 0:
-        return 'C-Dur'
-    major_profiles = {
-        0: [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88],
-        5: [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17],
-    }
-    minor_profiles = {
-        9: [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17],
-        2: [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88],
-    }
-    best_corr = -1
-    best_key = 'C-Dur'
-    for root, profile in {**major_profiles, **minor_profiles}.items():
-        rolled = np.roll(hist, root)
-        corr = float(np.corrcoef(rolled, profile)[0, 1]) if np.std(profile) > 0 else 0
-        if corr > best_corr:
-            best_corr = corr
-            best_key = f"{NOTE_NAMES[root]}-Dur" if root in major_profiles else f"{NOTE_NAMES[root]}-Moll"
-    return best_key
-
-
-def _classify_style(notes: list[dict], avg_drift: float, note_count: int) -> tuple[str, str]:
-    if note_count < 10:
-        return 'Melodisch', 'Klassisches Stück'
-    velocities = [n['velocity'] for n in notes]
-    avg_vel = np.mean(velocities)
-    vel_std = np.std(velocities)
-    style = 'Melodisch' if avg_vel > 60 else 'Harmonisch'
-    structure = 'Improvisation' if avg_drift > 30 or vel_std > 35 else 'Klassisches Stück'
-    return style, structure
-
-
-def separate_teacher_student(notes: list[dict]) -> dict:
-    teacher = [n for n in notes if n['key'] < 60]
-    student = [n for n in notes if n['key'] >= 60]
-    t_drift = np.mean([abs(n.get('gridOffsetMs', 0)) for n in teacher]) if teacher else 0.0
-    s_drift = np.mean([abs(n.get('gridOffsetMs', 0)) for n in student]) if student else 0.0
-    return {
-        'teacherNoteCount': len(teacher),
-        'studentNoteCount': len(student),
-        'teacherAvgDriftMs': round(float(t_drift), 2),
-        'studentAvgDriftMs': round(float(s_drift), 2),
-    }
-
-
-def compute_focus_score(notes: list[dict], avg_drift_ms: float) -> float:
-    if not notes:
-        return 0.0
-    drifts = [abs(n.get('gridOffsetMs', 0)) for n in notes]
-    drift_score = max(0, 100 - np.mean(drifts) * 2)
-    vel_std = np.std([n['velocity'] for n in notes])
-    vel_score = max(0, 100 - vel_std * 2)
-    return round(drift_score * 0.6 + vel_score * 0.4, 1)
 
 
 def process_file(file_bytes: bytes, file_name: str) -> dict[str, Any]:
@@ -530,76 +439,6 @@ def _analyze_and_build(file_name: str, raw_notes: list[dict], tempo: float) -> d
         'teacherStudentSplit': teacher_student,
         'notes': analysis_notes,
     }
-
-
-def save_to_db(db_path: str, result: dict[str, Any]) -> str:
-    import sqlite3
-    
-    session_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-    
-    conn = sqlite3.connect(db_path)
-    
-    existing = conn.execute(
-        "SELECT id FROM sessions WHERE file_name = ?", (result['fileName'],)
-    ).fetchone()
-    
-    notes_json = json.dumps(result['notes'], default=str)
-    ts_json = json.dumps(result.get('teacherStudentSplit', {}), default=str)
-    chart_json = json.dumps(compute_chart_data(result['notes']), default=str)
-    
-    row = (
-        result['date'],
-        result['time'],
-        result['weekday'],
-        result['tempo'],
-        result['estimatedBpm'] if 'estimatedBpm' in result else result['tempo'],
-        result['notesCount'],
-        result['avgVelocity'],
-        result['avgDriftMs'],
-        result['swingFactor16th'],
-        result['estimatedKey'] or 'Unbekannt',
-        result['styleCategory'] or 'Melodisch',
-        result['structureCategory'] or 'Klassisches Stück',
-        result.get('focusScore', 0) or 0,
-        ts_json,
-        '{}',
-        '{}',
-        '[]',
-        '{}',
-        notes_json,
-        chart_json,
-        now,
-    )
-    
-    if existing:
-        conn.execute("""UPDATE sessions SET
-            session_date=?, session_time=?, session_weekday=?,
-            tempo=?, estimated_bpm=?, notes_count=?,
-            avg_velocity=?, avg_drift_ms=?, avg_swing=?, estimated_key=?,
-            style_category=?, structure_category=?, focus_score=?,
-            teacher_student_json=?, velocity_spread_json=?, polyphony_json=?,
-            sliding_tempo_json=?, pedal_analysis_json=?, notes_json=?,
-            chart_data_json=?, created_at=?
-            WHERE file_name=?""", (*row, result['fileName']))
-        session_id = existing['id']
-        created = False
-    else:
-        conn.execute("""INSERT INTO sessions (
-            id, file_name, session_date, session_time, session_weekday,
-            tempo, estimated_bpm, notes_count,
-            avg_velocity, avg_drift_ms, avg_swing, estimated_key,
-            style_category, structure_category, focus_score,
-            teacher_student_json, velocity_spread_json, polyphony_json,
-            sliding_tempo_json, pedal_analysis_json, notes_json,
-            chart_data_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (session_id, result['fileName'], *row))
-        created = True
-    
-    conn.commit()
-    conn.close()
-    return session_id
 
 
 def compute_chart_data(notes: list[dict]) -> dict:

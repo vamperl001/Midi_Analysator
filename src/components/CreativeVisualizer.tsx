@@ -20,7 +20,7 @@ import {
   Workflow
 } from "lucide-react";
 import { AlsFileStats, MidiNote } from "../types";
-import { computeJitterMetrics } from "../medientechnikAnalysis";
+import { computeJitterMetrics } from "../backendApi";
 
 interface CreativeVisualizerProps {
   loadedFiles: AlsFileStats[];
@@ -97,12 +97,17 @@ export const CreativeVisualizer: React.FC<CreativeVisualizerProps> = ({
   // Calculate detailed stats on file switch
   useEffect(() => {
     if (!activeFile || !activeFile.notes || activeFile.notes.length === 0) return;
-    const metrics = computeJitterMetrics(activeFile.notes);
-    setStatsSummary({
-      maxDrift: metrics.maxDrift,
-      stdDev: metrics.stdDev,
-      jitter: metrics.jitter,
-    });
+    let cancelled = false;
+    (async () => {
+      const metrics = await computeJitterMetrics(activeFile.notes);
+      if (cancelled) return;
+      setStatsSummary({
+        maxDrift: metrics.maxDrift,
+        stdDev: metrics.stdDev,
+        jitter: metrics.jitter,
+      });
+    })();
+    return () => { cancelled = true; };
   }, [activeFile]);
 
   // Handle manual selection
