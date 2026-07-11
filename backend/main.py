@@ -49,6 +49,7 @@ class NoteModel(BaseModel):
     noteName: str = ""
     velocity: float = 100
     time: float = 0
+    duration: float = 0.25
     gridOffset: float = 0
     gridOffsetMs: float = 0
     nearestGrid: float = 0
@@ -215,6 +216,8 @@ async def upload_session(request: Request, file_name: str = "unknown.als"):
             result = process_band_file(body, file_name)
         else:
             raise HTTPException(400, f"Unsupported format for server-side: {ext}")
+        advanced = _compute_advanced_metrics(result.get("notes", []), result.get("tempo", 120), result.get("avgDriftMs", 0))
+        result.update(advanced)
         sid, _created = repo.save_session(result)
         return {"id": sid, **result}
     except Exception as e:
@@ -341,6 +344,7 @@ async def jitter_analysis(payload: dict):
 def _compute_advanced_metrics(notes: list[dict], tempo: float, avg_drift_ms: float) -> dict:
     if not notes:
         return {"velocitySpread": None, "polyphony": None, "slidingTempo": None, "pedalAnalysis": None}
+    from analysis.advanced import compute_velocity_spread, compute_polyphony_metrics, compute_fourier_sliding_tempo, analyze_sustain_pedal
     return {
         "velocitySpread": compute_velocity_spread(notes),
         "polyphony": compute_polyphony_metrics(notes),

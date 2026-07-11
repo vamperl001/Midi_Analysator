@@ -42,6 +42,7 @@ import { AdvancedCharts } from './components/AdvancedCharts';
 import { SessionComparison } from './components/SessionComparison';
 import { CreativeVisualizer } from './components/CreativeVisualizer';
 import { StudentProgress } from './components/StudentProgress';
+import SessionGraph from './components/SessionGraph';
 import { saveSessionToCloud, loadSessionsFromCloud, deleteSessionFromCloud, loadSessionNotesFromCloud } from './backendApi';
 import { enrichSessionWithAdvancedMetrics } from './medientechnikAnalysis';
 import { CountUp } from './components/CountUp';
@@ -73,7 +74,7 @@ export default function App() {
   const [loadedFiles, setLoadedFiles] = useState<AlsFileStats[]>([]);
   const [selectedFileIdx, setSelectedFileIdx] = useState<number | null>(null); // Index des fokussierten Files, null für Gesamtansicht
   const [selectedMonth, setSelectedMonth] = useState<string>("ALL"); // "ALL", "0" (Jan) bis "5" (Jun)
-  const [activeTab, setActiveTab] = useState<"dashboard" | "database" | "python" | "calendar" | "visualizer" | "progress">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "database" | "python" | "calendar" | "visualizer" | "progress" | "graph">("dashboard");
   const [isParsing, setIsParsing] = useState<boolean>(false);
   const [errorString, setErrorString] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState<boolean>(false);
@@ -82,6 +83,9 @@ export default function App() {
   const [trackSearch, setTrackSearch] = useState<string>("");
   const [minVelocity, setMinVelocity] = useState<number>(0);
   const [maxVelocity, setMaxVelocity] = useState<number>(127);
+  const [slotFilter, setSlotFilter] = useState<{weekday: number; time: string} | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<string>("ALL");
+  const [selectedTrack, setSelectedTrack] = useState<string>("ALL");
 
   // Serverseitig berechnete Chart-Daten (Histogramme etc.)
   const [chartData, setChartData] = useState<Record<string, ChartDataEntry> | null>(null);
@@ -381,6 +385,33 @@ export default function App() {
     });
   }, [schedule, loadedFiles.length]);
 
+  // Verfügbare Unterrichtsslots aus dem Schedule (nur Slots mit Schüler-Namen)
+  const availableSlots = useMemo(() => {
+    const weekdayNames = ["So","Mo","Di","Mi","Do","Fr","Sa"];
+    return schedule
+      .filter(e => e.studentName)
+      .map(e => ({
+        weekday: e.weekday,
+        time: e.time,
+        label: `${weekdayNames[e.weekday]} ${e.time} – ${e.studentName}`,
+      }))
+      .sort((a, b) => a.weekday * 100 + parseInt(a.time) - (b.weekday * 100 + parseInt(b.time)));
+  }, [schedule]);
+
+  // Verfügbare Schüler aus dem Schedule
+  const availableStudents = useMemo(() => {
+    const names = new Set<string>();
+    schedule.forEach(e => { if (e.studentName) names.add(e.studentName); });
+    return Array.from(names).sort();
+  }, [schedule]);
+
+  // Verfügbare Spuren aus allen Sessions extrahieren
+  const availableTracks = useMemo(() => {
+    const names = new Set<string>();
+    loadedFiles.forEach(s => s.notes.forEach(n => { if (n.trackName) names.add(n.trackName); }));
+    return Array.from(names).sort();
+  }, [loadedFiles]);
+
   // --- Vergleichsmodus (Compare Mode) ---
   const [compareMode, setCompareMode] = useState<boolean>(false);
   const [comparedIndices, setComparedIndices] = useState<number[]>([]);
@@ -447,6 +478,7 @@ export default function App() {
       time: sr.time ?? '14:00',
       weekday: sr.weekday ?? 0,
       tempo: sr.tempo ?? 120,
+      estimatedBpm: sr.estimatedBpm,
       notesCount: sr.notesCount ?? 0,
       avgVelocity: sr.avgVelocity ?? 0,
       avgDriftMs: sr.avgDriftMs ?? 0,
@@ -456,12 +488,17 @@ export default function App() {
       structureCategory: sr.structureCategory ?? 'Klassisches Stück',
       focusScore: sr.focusScore,
       teacherStudentSplit: sr.teacherStudentSplit,
+      velocitySpread: sr.velocitySpread || undefined,
+      polyphony: sr.polyphony || undefined,
+      slidingTempo: sr.slidingTempo || undefined,
+      pedalAnalysis: sr.pedalAnalysis || undefined,
       notes: (sr.notes ?? []).map((n: any) => ({
         id: `${sr.fileName}-${n.time}-${n.key}`,
         key: n.key,
         noteName: n.noteName ?? '',
         velocity: n.velocity ?? 100,
         time: n.time ?? 0,
+        duration: n.duration ?? 0.25,
         gridOffset: n.gridOffset ?? 0,
         gridOffsetMs: n.gridOffsetMs ?? 0,
         nearestGrid: n.nearestGrid ?? 0,
@@ -505,6 +542,7 @@ export default function App() {
             parsedSessions.push(enriched);
             continue;
           }
+          console.warn(`Server MIDI-Verarbeitung fehlgeschlagen (${res.status}), Fallback auf clientseitig...`);
         }
 
         // .als → JS parse (funktioniert) + Server-Analyse
@@ -530,12 +568,12 @@ export default function App() {
           }
         }
 
-        // Fallback: Client-seitig parsen, Server-seitig analysieren (.band, .zip, audio)
+        // Fallback: Client-seitig parsen, Server-seitig analysieren + speichern (.band, .zip, audio)
         setProcessingProgress(`Lese ${i + 1}/${sortedFiles.length}: ${file.name} (clientseitig)...`);
         const raw = await parseAlsFile(file);
 
         setProcessingProgress(`Server-Analyse ${i + 1}/${sortedFiles.length}: ${file.name}`);
-        const res2 = await fetch('/api/analyze/notes', {
+        const res2 = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -546,7 +584,7 @@ export default function App() {
         });
         if (res2.ok) {
           const serverResult = await res2.json();
-          const session = buildSessionFromServerResult({ id: '', ...serverResult });
+          const session = buildSessionFromServerResult(serverResult);
           const enriched = enrichSessionWithAdvancedMetrics(session);
           parsedSessions.push(enriched);
         }
@@ -668,9 +706,31 @@ export default function App() {
 
   // --- Filter sessions & their notes by Velocity ---
   const filteredViewSessions = useMemo(() => {
-    return activeViewSessions.map(session => {
+    let sessions = activeViewSessions;
+    if (slotFilter) {
+      sessions = sessions.filter(s => s.weekday === slotFilter.weekday && s.time === slotFilter.time);
+    }
+    // Schülermatching: jeder Session per weekday-Rotation einen Schüler zuweisen
+    if (selectedStudent !== "ALL") {
+      const weekdayCounter = new Map<number, number>();
+      sessions = sessions.filter(s => {
+        const slots = schedule.filter(e => e.weekday === s.weekday && e.studentName);
+        if (slots.length === 0) return false;
+        const counter = weekdayCounter.get(s.weekday) ?? 0;
+        weekdayCounter.set(s.weekday, counter + 1);
+        return slots[counter % slots.length].studentName === selectedStudent;
+      });
+    }
+    return sessions.map(session => {
       const enriched = session.notes.length > 0 ? enrichSessionWithAdvancedMetrics(session) : session;
-      const matchedNotes = enriched.notes.filter(note => note.velocity >= minVelocity && note.velocity <= maxVelocity);
+      let matchedNotes = enriched.notes.filter(note =>
+        note.velocity >= minVelocity && note.velocity <= maxVelocity &&
+        (selectedNoteKey === null || note.key === selectedNoteKey)
+      );
+      // Spurenfilter: nur Noten der gewählten Spur
+      if (selectedTrack !== "ALL") {
+        matchedNotes = matchedNotes.filter(n => n.trackName === selectedTrack);
+      }
       return {
         ...enriched,
         notes: matchedNotes,
@@ -682,8 +742,8 @@ export default function App() {
           ? matchedNotes.reduce((sum, n) => sum + n.gridOffsetMs, 0) / matchedNotes.length
           : (enriched.notes.length === 0 ? enriched.avgDriftMs : 0),
       };
-    });
-  }, [activeViewSessions, minVelocity, maxVelocity]);
+    }).filter(s => s.notes.length > 0);
+  }, [activeViewSessions, minVelocity, maxVelocity, selectedNoteKey, slotFilter, selectedStudent, selectedTrack, schedule]);
 
   // --- Global Stats der aktuell gefilterten View ---
   const totals = useMemo(() => {
@@ -694,7 +754,7 @@ export default function App() {
       return { notesCount: 0, avgTempo: 0, avgVelocity: 0, avgDriftMs: 0, avgSwing: 0 };
     }
 
-    const notesCount = sessions.reduce((sum, s) => sum + s.notesCount, 0);
+    const notesCount = sessions.reduce((sum, s) => sum + (s.notes.length > 0 ? s.notes.length : s.notesCount), 0);
     const avgTempo = sessions.reduce((sum, s) => sum + (s.estimatedBpm ?? s.tempo), 0) / sessionCount;
     const avgVelocity = sessions.reduce((sum, s) => sum + s.avgVelocity, 0) / sessionCount;
     const avgDriftMs = sessions.reduce((sum, s) => sum + s.avgDriftMs, 0) / sessionCount;
@@ -707,6 +767,20 @@ export default function App() {
       avgDriftMs: parseFloat(avgDriftMs.toFixed(2)),
       avgSwing: parseFloat(avgSwing.toFixed(1))
     };
+  }, [filteredViewSessions]);
+
+  const dateRange = useMemo(() => {
+    const sessions = filteredViewSessions;
+    const dates = sessions.map(s => s.date).filter(Boolean).sort();
+    if (dates.length === 0) return '';
+    const first = dates[0];
+    const last = dates[dates.length - 1];
+    const months = ['JAN','FEB','MAR','APR','MAI','JUN','JUL','AUG','SEP','OKT','NOV','DEZ'];
+    const fmt = (d: string) => {
+      const [y, m] = d.split('-');
+      return `${months[parseInt(m)-1]} ${y}`;
+    };
+    return `${fmt(first)} – ${fmt(last)}`;
   }, [filteredViewSessions]);
 
   // --- Spurenanalyse (Track-by-Track-Vergleich) ---
@@ -843,15 +917,22 @@ export default function App() {
               <span>FORTSCHRITT</span>
             </button>
             <button
-              onClick={() => setActiveTab("database")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono transition-all cursor-pointer ${activeTab === "database" ? 'bg-slate-950 text-indigo-300 border border-slate-600 shadow-sm font-bold' : 'text-slate-400 hover:text-slate-200'}`}
+              onClick={() => setActiveTab("graph")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono transition-all cursor-pointer ${activeTab === "graph" ? 'bg-slate-950 text-indigo-300 border border-slate-600 shadow-sm font-bold' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>GRAPH</span>
+            </button>
+            <button
+              disabled
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono cursor-not-allowed opacity-40 ${activeTab === "database" ? 'bg-slate-950 text-indigo-300 border border-slate-600 shadow-sm font-bold' : 'text-slate-500'}`}
             >
               <Database className="w-3.5 h-3.5" />
               <span>DATEN</span>
             </button>
             <button
-              onClick={() => setActiveTab("python")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono transition-all cursor-pointer ${activeTab === "python" ? 'bg-slate-950 text-indigo-300 border border-slate-600 shadow-sm font-bold' : 'text-slate-400 hover:text-slate-200'}`}
+              disabled
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono cursor-not-allowed opacity-40 ${activeTab === "python" ? 'bg-slate-950 text-indigo-300 border border-slate-600 shadow-sm font-bold' : 'text-slate-500'}`}
             >
               <Code className="w-3.5 h-3.5" />
               <span>PYTHON</span>
@@ -867,40 +948,8 @@ export default function App() {
         {/* --- DOCK: UPLOADER & DEMO CONTROLLER --- */}
         <section className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 md:p-8 flex flex-col md:flex-row items-stretch gap-8" id="ops-dock">
           
-          {/* Linker Flügel: Drag and Drop Uploader */}
+          {/* Steuerung & Filter */}
           <div className="flex-1 flex flex-col">
-            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-1.5 font-mono">
-              <Upload className="w-3.5 h-3.5 text-indigo-400" />
-              01 // ALS PARSE & IMPORT
-            </h2>
-            
-            <div 
-              onDragEnter={handleDrag}
-              onDragOver={handleDrag}
-              onDragLeave={handleDrag}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`flex-grow border-2 border-dashed rounded p-6 flex flex-col items-center justify-center text-center transition-all cursor-pointer hover:bg-slate-800/40 relative ${dragActive ? 'border-indigo-500 bg-slate-800/60' : 'border-slate-600 hover:border-slate-500 bg-slate-800/20'}`}
-            >
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileChange} 
-                multiple 
-                accept="*/*" 
-                className="hidden" 
-              />
-              <FileUp className={`w-8 h-8 mb-2 transition-transform duration-300 ${dragActive ? 'scale-110 text-indigo-400' : 'text-slate-500'}`} />
-              
-              <span className="text-xs font-semibold text-slate-200">Dateien einspielen (.als, .mid, .midi, .band, .zip, .mp3, .wav, .m4a, .caf)</span>
-              <span className="text-[10px] text-slate-500 font-serif italic mt-1 leading-normal max-w-xs">
-                Zieh Ableton (.als), MIDI, GarageBand (.band, .zip) oder Klick-freies Audio hierhin.
-              </span>
-            </div>
-          </div>
-
-          {/* Rechter Flügel: Steuerung & Filter */}
-          <div className="md:w-1/2 flex flex-col justify-between border-t md:border-t-0 md:border-l border-slate-700/50 pt-6 md:pt-0 md:pl-8">
             <div>
               <div className="flex justify-between items-center mb-3">
                 <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 font-mono">
@@ -1041,6 +1090,74 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Slot-Filter (Unterrichts-Slot) */}
+                  {availableSlots.length > 0 && (
+                    <div className="flex flex-col gap-1 mt-1.5 pt-2.5 border-t border-slate-700/50">
+                      <span className="text-slate-400 uppercase font-bold text-[10px] tracking-wider mb-2 font-mono">
+                        📅 Slot-Filter:
+                      </span>
+                      <div className="flex flex-wrap gap-1.5 font-mono">
+                        <button
+                          onClick={() => setSlotFilter(null)}
+                          className={`px-2 py-1 rounded text-[8.5px] border cursor-pointer font-bold transition-all ${!slotFilter ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-300'}`}
+                        >
+                          ALLE
+                        </button>
+                        {availableSlots.map(slot => (
+                          <button
+                            key={`${slot.weekday}-${slot.time}`}
+                            onClick={() => setSlotFilter({ weekday: slot.weekday, time: slot.time })}
+                            className={`px-2 py-1 rounded text-[8.5px] border cursor-pointer font-bold transition-all ${
+                              slotFilter?.weekday === slot.weekday && slotFilter?.time === slot.time
+                                ? 'bg-indigo-600 border-indigo-500 text-white'
+                                : 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-300'
+                            }`}
+                          >
+                            {slot.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Schüler-Filter */}
+                  {availableStudents.length > 0 && (
+                    <div className="flex flex-col gap-1 mt-1.5 pt-2.5 border-t border-slate-700/50">
+                      <span className="text-slate-400 uppercase font-bold text-[10px] tracking-wider mb-2 font-mono">
+                        🧑‍🎓 Schüler-Filter:
+                      </span>
+                      <select
+                        value={selectedStudent}
+                        onChange={(e) => setSelectedStudent(e.target.value)}
+                        className="bg-slate-800 border border-slate-600 focus:border-indigo-500 text-slate-200 py-1.5 px-2.5 rounded text-xs focus:outline-none font-mono"
+                      >
+                        <option value="ALL">Alle Schüler</option>
+                        {availableStudents.map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Spuren-Filter */}
+                  {availableTracks.length > 1 && (
+                    <div className="flex flex-col gap-1 mt-1.5 pt-2.5 border-t border-slate-700/50">
+                      <span className="text-slate-400 uppercase font-bold text-[10px] tracking-wider mb-2 font-mono">
+                        🎵 Spuren-Filter:
+                      </span>
+                      <select
+                        value={selectedTrack}
+                        onChange={(e) => setSelectedTrack(e.target.value)}
+                        className="bg-slate-800 border border-slate-600 focus:border-indigo-500 text-slate-200 py-1.5 px-2.5 rounded text-xs focus:outline-none font-mono"
+                      >
+                        <option value="ALL">Alle Spuren</option>
+                        {availableTracks.map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   {/* Vergleichsmodus */}
                   <div className="flex flex-col gap-2 mt-1.5 pt-2 border-t border-slate-700/50">
@@ -1201,21 +1318,21 @@ export default function App() {
               </div>
               <div className="text-[9px] text-slate-500 mt-2 flex items-center gap-1 font-mono uppercase">
                 <Calendar className="w-3 h-3 text-slate-500" />
-                JAN - JUN 2026
+                {dateRange}
               </div>
             </motion.div>
 
-            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between overflow-hidden" id="card-midi">
+            <motion.div variants={statsCardVariants} className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-5 flex flex-col justify-between min-w-0" id="card-midi">
               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">MIDI Events</span>
-              <div className="flex items-baseline gap-2 mt-2">
-                <span className="text-3xl font-light leading-none text-white">
+              <div className="flex items-baseline gap-2 mt-2 min-w-0">
+                <span className="text-xl font-light leading-none text-white truncate min-w-0">
                   <CountUp end={totals.notesCount} decimals={0} id="val-midi" />
                 </span>
-                <span className="text-slate-400 text-xs">Notes</span>
+                <span className="text-slate-400 text-[11px] shrink-0">Notes</span>
               </div>
               <div className="text-[9px] text-slate-500 mt-2 flex items-center gap-1 font-mono uppercase">
                 <Layers className="w-3 h-3 text-slate-500" />
-                Grid [1/16 Note]
+                1/16 Grid
               </div>
             </motion.div>
 
@@ -1399,7 +1516,7 @@ export default function App() {
                   />
 
                   {/* Erweiterte grafische Auswertungen */}
-                  <AdvancedCharts data={loadedFiles} />
+                  <AdvancedCharts data={filteredViewSessions} />
 
                   {/* Timing-Drift Entwicklung (Recharts Liniengrafik) */}
                   <ProgressionChart loadedFiles={loadedFiles} />
@@ -1482,9 +1599,9 @@ export default function App() {
               )}
 
               {activeTab === "database" && (
-                <div className="space-y-6" id="tab-database-view">
+                <div className="space-y-6 opacity-40 pointer-events-none" id="tab-database-view">
                   <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 md:p-8 flex flex-col md:flex-row gap-8">
-                    <div className="flex-1 space-y-4">
+                    <div className="flex-1 space-y-4 opacity-40 pointer-events-none">
                       <h3 className="text-xs font-bold tracking-widest text-slate-200 uppercase font-mono mb-1">
                         ⚙ Daten-Exporter
                       </h3>
@@ -1504,24 +1621,24 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="md:w-80 flex flex-col justify-center gap-3.5 bg-slate-800/40 p-5 border border-slate-700 rounded">
+                    <div className="md:w-80 flex flex-col justify-center gap-3.5 bg-slate-800/40 p-5 border border-slate-700 rounded opacity-40 pointer-events-none">
                       <button 
-                        onClick={handleDownloadCsv}
-                        className="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-500 py-3 px-4 rounded flex items-center justify-center gap-2 font-mono text-xs font-semibold transition-all cursor-pointer active:scale-[0.98]"
+                        disabled
+                        className="w-full bg-slate-700 text-slate-500 border border-slate-600 py-3 px-4 rounded flex items-center justify-center gap-2 font-mono text-xs font-semibold cursor-not-allowed"
                       >
-                        <Download className="w-4 h-4 text-slate-300" />
+                        <Download className="w-4 h-4 text-slate-600" />
                         CSV exportieren
                       </button>
 
                       <button 
-                        onClick={handleDownloadSql}
-                        className="w-full bg-indigo-600 text-white hover:bg-indigo-500 py-3 px-4 rounded flex items-center justify-center gap-2 font-mono text-xs font-bold transition-all cursor-pointer active:scale-[0.98]"
+                        disabled
+                        className="w-full bg-indigo-700 text-indigo-300 py-3 px-4 rounded flex items-center justify-center gap-2 font-mono text-xs font-bold cursor-not-allowed"
                       >
                         <Database className="w-4 h-4 fill-current" />
                         SQL BOOTSTRAP
                       </button>
 
-                      <div className="text-center text-[9px] text-slate-500 font-mono mt-1">
+                      <div className="text-center text-[9px] text-slate-600 font-mono mt-1">
                         {totals.notesCount.toLocaleString()} Events
                       </div>
                     </div>
@@ -1559,7 +1676,7 @@ export default function App() {
               )}
 
               {activeTab === "python" && (
-                <div className="space-y-6" id="tab-python-view">
+                <div className="space-y-6 opacity-40 pointer-events-none" id="tab-python-view">
                   <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 md:p-8">
                     <h3 className="text-xs font-bold tracking-widest text-slate-200 uppercase font-mono mb-3">
                       🐍 Python Pipeline
@@ -1594,16 +1711,16 @@ export default function App() {
                       </div>
                       <div className="flex gap-2 font-mono">
                         <button 
-                          onClick={handleCopyScriptToClipboard}
-                          className="bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-500 py-2.5 px-4 rounded flex items-center justify-center gap-1.5 text-xs font-bold transition-all cursor-pointer active:scale-[0.98]"
+                          disabled
+                          className="bg-slate-700 text-slate-500 border border-slate-600 py-2.5 px-4 rounded flex items-center justify-center gap-1.5 text-xs font-bold cursor-not-allowed"
                         >
-                          {copySuccess ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                          <span>{copySuccess ? "KOPIERT!" : "KOPIEREN"}</span>
+                          <Copy className="w-4 h-4 text-slate-600" />
+                          <span>KOPIEREN</span>
                         </button>
 
                         <button 
-                          onClick={handleDownloadPythonScript}
-                          className="bg-indigo-600 text-white hover:bg-indigo-500 py-2.5 px-4 rounded flex items-center justify-center gap-1.5 text-xs font-bold transition-all cursor-pointer active:scale-[0.98]"
+                          disabled
+                          className="bg-indigo-700 text-indigo-300 py-2.5 px-4 rounded flex items-center justify-center gap-1.5 text-xs font-bold cursor-not-allowed"
                         >
                           <Download className="w-4 h-4" />
                           <span>HERUNTERLADEN</span>
@@ -1659,6 +1776,17 @@ export default function App() {
                 </div>
               )}
 
+              {/* --- TAB 7: SESSION GRAPH --- */}
+              {activeTab === "graph" && (
+                <SessionGraph
+                  sessions={filteredViewSessions}
+                  onSelectSession={(idx) => {
+                    setSelectedFileIdx(idx);
+                    setActiveTab("dashboard");
+                  }}
+                />
+              )}
+
             </div>
           )}
         </div>
@@ -1668,7 +1796,7 @@ export default function App() {
       {/* 3. Humble Footer */}
       <footer className="bg-slate-900 text-slate-500 text-[10px] px-8 py-6 flex flex-col sm:flex-row justify-between items-center gap-3 font-mono mt-12" id="main-footer">
         <div>© 2026 ABLETON_MIDI_ANALYZE_STABLE // SYSTEM_RAM_SYNC: OK</div>
-        <div className="text-slate-600 font-medium">CLIENT-SIDE PROCESSING (NO SERVERS INVOLVED) // DATA_WINDOW: JAN-JUN 2024</div>
+        <div className="text-slate-600 font-medium">CLIENT-SIDE PROCESSING (NO SERVERS INVOLVED) // DATA_WINDOW: JAN-JUN 2026</div>
       </footer>
 
     </div>

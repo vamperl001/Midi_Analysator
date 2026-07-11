@@ -1,5 +1,7 @@
 # Roadmap — Architektur-Migration
 
+> **Docker-Setup:** [`/srv/docker/SETUP.md`](../../SETUP.md) – Übersicht aller Server-Dienste
+
 Geordnet nach Phasen. Ziel: Die Architekturregeln aus `ARCHITECTUR.md` vollständig erfüllen.
 
 ---

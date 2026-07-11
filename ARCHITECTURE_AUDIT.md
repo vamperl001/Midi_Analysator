@@ -1,5 +1,7 @@
 # Architecture Audit – MIDI Analysator
 
+> **Docker-Setup:** [`/srv/docker/SETUP.md`](../SETUP.md) – Übersicht aller Server-Dienste
+
 **Datum:** 2026-07-08
 **Basis:** `ARCHITECTUR.md` v1.0, `docs/roadmap.md`, `README.md`
 **Stand:** Nach Phase 3 (Analyse-Deduplizierung abgeschlossen)

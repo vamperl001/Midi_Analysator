@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { MidiNote, AlsFileStats, ChartDataEntry } from '../types';
-import { chart as chartTheme, accent, text as textTheme, bg } from '../theme';
+import { chart as chartTheme, text as textTheme, bg } from '../theme';
 import {
   AreaChart,
   Area,
@@ -16,7 +16,8 @@ import {
 } from 'recharts';
 import { Activity, Flame, Volume2, Music, Sparkles } from 'lucide-react';
 import { CustomResponsiveContainer } from './CustomResponsiveContainer';
-import { computeKde } from '../backendApi';
+import D3DriftHistogram from './D3DriftHistogram';
+import D3TrendChart from './D3TrendChart';
 
 interface SvgChartsProps {
   data: AlsFileStats[];
@@ -132,7 +133,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
     };
   }, [chartData, data]);
 
-  const useChartData = !!aggregatedChart;
+  const useChartData = false;
 
   function round1(v: number) { return Math.round(v * 10) / 10; }
   function round2(v: number) { return Math.round(v * 100) / 100; }
@@ -152,217 +153,6 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
       }))
     );
   }, [data, useChartData]);
-
-  // Für die Histogramm-Berechnung filtern wir ggf. nach der ausgewählten Note (Piano Roll)
-  const filteredNotesForHistogram = useMemo(() => {
-    if (useChartData) return [];
-    if (selectedNoteKey === null) return allNotes;
-    return allNotes.filter(n => n.key === selectedNoteKey);
-  }, [allNotes, selectedNoteKey, useChartData]);
-
-  // --- 2. STATISTIKEN BERECHNEN ---
-  const stats = useMemo(() => {
-    if (useChartData && aggregatedChart) {
-      return aggregatedChart.stats;
-    }
-    const notesCount = filteredNotesForHistogram.length;
-    if (notesCount === 0) return { avg: 0, std: 0, earlyPercent: 50, latePercent: 50, tightPercent: 0, median: 0, skewness: 0, bassPct: 0 };
-
-    const offsets = filteredNotesForHistogram.map(n => n.gridOffsetMs);
-    const sum = offsets.reduce((s, val) => s + val, 0);
-    const avg = sum / notesCount;
-    
-    // Standardabweichung
-    const variance = offsets.reduce((s, val) => s + Math.pow(val - avg, 2), 0) / notesCount;
-    const std = Math.sqrt(variance);
-
-    // Schiefe (Skewness)
-    const m3 = offsets.reduce((s, val) => s + Math.pow(val - avg, 3), 0) / notesCount;
-    const skewness = std > 0 ? m3 / Math.pow(std, 3) : 0;
-
-    // Median
-    const sorted = [...offsets].sort((a, b) => a - b);
-    const median = sorted[Math.floor(notesCount / 2)];
-
-    // Early vs Late
-    const early = offsets.filter(o => o < -1.5).length;
-    const late = offsets.filter(o => o > 1.5).length;
-    const tight = notesCount - early - late;
-
-    const earlyPercent = Math.round((early / notesCount) * 100);
-    const latePercent = Math.round((late / notesCount) * 100);
-    const tightPercent = 100 - earlyPercent - latePercent;
-
-    const bassPct = Math.round((filteredNotesForHistogram.filter(n => n.key < 60).length / notesCount) * 100);
-
-    return { avg, std, earlyPercent, latePercent, tightPercent, median, skewness, bassPct };
-  }, [filteredNotesForHistogram, useChartData, aggregatedChart]);
-
-  // --- 3. HISTOGRAMM BINS MIT REGISTER-SPLIT ---
-  const MIDDLE_C = 60;
-  const registerSplit = useMemo(() => {
-    if (useChartData) return { bassNotes: [], trebleNotes: [] };
-    const bassNotes = filteredNotesForHistogram.filter(n => n.key < MIDDLE_C);
-    const trebleNotes = filteredNotesForHistogram.filter(n => n.key >= MIDDLE_C);
-    return { bassNotes, trebleNotes };
-  }, [filteredNotesForHistogram, useChartData]);
-
-  const minMs = -50;
-  const maxMs = 50;
-  const binSize = 2;
-
-  function buildHistogram(offsets: number[]): { lower: number; upper: number; mid: number; count: number }[] {
-    const numBins = Math.ceil((maxMs - minMs) / binSize);
-    const bins = Array.from({ length: numBins }, (_, idx) => {
-      const lower = minMs + idx * binSize;
-      return { lower, upper: lower + binSize, mid: lower + binSize / 2, count: 0 };
-    });
-    for (const offset of offsets) {
-      for (const bin of bins) {
-        if (offset >= bin.lower && offset < bin.upper) {
-          bin.count++;
-          break;
-        }
-      }
-    }
-    return bins;
-  }
-
-  const histBass = useMemo(() => {
-    if (useChartData && aggregatedChart) return aggregatedChart.gridOffsetBassHistogram;
-    return buildHistogram(registerSplit.bassNotes.map(n => n.gridOffsetMs));
-  }, [registerSplit.bassNotes, useChartData, aggregatedChart]);
-  const histTreble = useMemo(() => {
-    if (useChartData && aggregatedChart) return aggregatedChart.gridOffsetTrebleHistogram;
-    return buildHistogram(registerSplit.trebleNotes.map(n => n.gridOffsetMs));
-  }, [registerSplit.trebleNotes, useChartData, aggregatedChart]);
-  const histAll = useMemo(() => {
-    if (useChartData && aggregatedChart) return aggregatedChart.gridOffsetHistogram;
-    return buildHistogram(filteredNotesForHistogram.map(n => n.gridOffsetMs));
-  }, [filteredNotesForHistogram, useChartData, aggregatedChart]);
-
-  const maxBinCount = useMemo(() => {
-    const all = [...histBass, ...histTreble, ...histAll].map(b => b.count);
-    return all.length > 0 ? Math.max(...all, 1) : 1;
-  }, [histBass, histTreble, histAll]);
-
-  // --- KDE (Kernel Density Estimate) for smooth violin-curve ---
-  const [kdePoints, setKdePoints] = useState<{ all: { x: number; y: number }[]; bass: { x: number; y: number }[]; treble: { x: number; y: number }[] }>({ all: [], bass: [], treble: [] });
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const allOffsets = filteredNotesForHistogram.map(n => n.gridOffsetMs);
-      const bassOffsets = registerSplit.bassNotes.map(n => n.gridOffsetMs);
-      const trebleOffsets = registerSplit.trebleNotes.map(n => n.gridOffsetMs);
-      try {
-        const [all, bass, treble] = await Promise.all([
-          computeKde(allOffsets, 200),
-          bassOffsets.length > 50 ? computeKde(bassOffsets, 200) : Promise.resolve([]),
-          trebleOffsets.length > 50 ? computeKde(trebleOffsets, 200) : Promise.resolve([]),
-        ]);
-        if (!cancelled) setKdePoints({ all, bass, treble });
-      } catch {
-        if (!cancelled) setKdePoints({ all: [], bass: [], treble: [] });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [filteredNotesForHistogram, registerSplit]);
-
-  const maxKdeY = useMemo(() => {
-    const all = [...kdePoints.all, ...kdePoints.bass, ...kdePoints.treble].map(p => p.y);
-    return all.length > 0 ? Math.max(...all, 0.001) : 1;
-  }, [kdePoints]);
-
-  // Build SVG path for KDE curve
-  function kdePath(kde: { x: number; y: number }[], svgWidth: number, svgHeight: number, xMin: number, xMax: number): string {
-    if (kde.length < 2) return '';
-    const xRange = xMax - xMin || 1;
-    const parts = kde.map((p, i) => {
-      const sx = ((p.x - xMin) / xRange) * svgWidth;
-      const sy = svgHeight - (p.y / maxKdeY) * svgHeight * 0.85;
-      return i === 0 ? `M${sx},${sy}` : `L${sx},${sy}`;
-    });
-    return parts.join(' ');
-  }
-
-  function kdeFillPath(kde: { x: number; y: number }[], svgWidth: number, svgHeight: number, xMin: number, xMax: number): string {
-    if (kde.length < 2) return '';
-    const xRange = xMax - xMin || 1;
-    const p0 = ((kde[0].x - xMin) / xRange) * svgWidth;
-    const pN = ((kde[kde.length - 1].x - xMin) / xRange) * svgWidth;
-    return kdePath(kde, svgWidth, svgHeight, xMin, xMax) + ` L${pN},${svgHeight} L${p0},${svgHeight} Z`;
-  }
-
-  // --- 4. DAILY TREND BERECHNEN ---
-  const dailyTrend = useMemo(() => {
-    // Sortiere nach Datum
-    const sortedSessions = [...data].sort((a, b) => a.date.localeCompare(b.date));
-    
-    // Gruppiere nach Datum für den Fall mehrfacher Dateien pro Tag
-    const grouped: { [date: string]: { totalDrift: number, totalTempo: number, count: number, totalSwing: number } } = {};
-    sortedSessions.forEach(s => {
-      if (!grouped[s.date]) {
-         grouped[s.date] = { totalDrift: 0, totalTempo: 0, count: 0, totalSwing: 0 };
-      }
-      grouped[s.date].totalDrift += s.avgDriftMs;
-      grouped[s.date].totalTempo += s.tempo;
-      grouped[s.date].totalSwing += s.swingFactor16th;
-      grouped[s.date].count += 1;
-    });
-
-    const timelineData = Object.entries(grouped).map(([date, obj]) => {
-      return {
-        date,
-        avgDrift: parseFloat((obj.totalDrift / obj.count).toFixed(2)),
-        avgTempo: parseFloat((obj.totalTempo / obj.count).toFixed(1)),
-        avgSwing: parseFloat((obj.totalSwing / obj.count).toFixed(1)),
-        displayDate: new Date(date).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })
-      };
-    });
-
-    // 7-Tage-Gleitender-Durchschnitt hinzufügen
-    return timelineData.map((day, idx, arr) => {
-      const start = Math.max(0, idx - 6);
-      const windowItems = arr.slice(start, idx + 1);
-      const sumDrift = windowItems.reduce((acc, item) => acc + item.avgDrift, 0);
-      const sumSwing = windowItems.reduce((acc, item) => acc + item.avgSwing, 0);
-      
-      return {
-        ...day,
-        rollingDrift: parseFloat((sumDrift / windowItems.length).toFixed(2)),
-        rollingSwing: parseFloat((sumSwing / windowItems.length).toFixed(2))
-      };
-    });
-  }, [data]);
-
-  // Trenddimensionen für SVG definieren
-  const trendMaxDrift = useMemo(() => {
-    const vals = dailyTrend.map(d => Math.max(d.avgDrift, d.rollingDrift || 0));
-    return vals.length > 0 ? vals.reduce((a, b) => Math.max(a, b), 15) : 25;
-  }, [dailyTrend]);
-
-  const trendMinDrift = useMemo(() => {
-    const vals = dailyTrend.map(d => Math.min(d.avgDrift, d.rollingDrift || 0));
-    return vals.length > 0 ? Math.max(0, vals.reduce((a, b) => Math.min(a, b), vals[0])) : 0;
-  }, [dailyTrend]);
-
-  // --- 5. SWING FACTOR DISTRIBUTION ---
-  const swingDistribution = useMemo(() => {
-    const swings = data.map(s => s.swingFactor16th).filter(s => s > 40 && s < 80);
-    const buckets = Array.from({ length: 16 }, (_, i) => 48 + i * 1.5); // 48% bis 72%
-    const counts = buckets.map(upper => {
-      const lower = upper - 1.5;
-      const cnt = swings.filter(s => s >= lower && s < upper).length;
-      return { label: `${lower.toFixed(1)}%`, count: cnt, mid: lower + 0.75 };
-    });
-    return counts;
-  }, [data]);
-
-  const maxSwingCount = useMemo(() => {
-    const counts = swingDistribution.map(s => s.count);
-    return counts.length > 0 ? counts.reduce((a, b) => Math.max(a, b), 1) : 1;
-  }, [swingDistribution]);
 
   // --- 6. PIANO KEYS HEATMAP ---
   const pianoNotesStatus = useMemo(() => {
@@ -558,7 +348,7 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
     const vels = activeSteps.map(s => s.avgVelocity);
     const min = vels.reduce((a, b) => Math.min(a, b), vels[0]);
     const max = vels.reduce((a, b) => Math.max(a, b), vels[0]);
-    const dynamicDelta = max - min;
+    const dynamicDelta = Math.round((max - min) * 10) / 10;
     
     let accentuation = "Homogen";
     if (dynamicDelta > 30) {
@@ -575,406 +365,80 @@ export const SvgCharts: React.FC<SvgChartsProps> = ({ data, selectedNoteKey, set
       {/* Obere Reihe: Standard-Diagramme */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="svg-charts-container">
       
-      {/* 1. TIMING DRIFT HISTOGRAMM */}
-      <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 flex flex-col" id="chart-drift-histogram">
-        <div className="mb-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-xs font-bold tracking-widest text-slate-100 uppercase font-mono">
-              ★ Microtiming-Drift-Verteilung
-            </h3>
-            {selectedNoteKey !== null && (
-              <button 
-                onClick={() => setSelectedNoteKey(null)}
-                className="text-xs text-blue-600 hover:text-blue-800 font-mono flex items-center gap-1"
-              >
-                ◀ Clear Filter ({getNoteName(selectedNoteKey)})
-              </button>
-            )}
-          </div>
-          <p className="text-xs text-slate-400 mt-1 italic font-serif">
-            {selectedNoteKey === null 
-              ? 'Wahre Abweichung aller MIDI-Noten von der quantisierten Grid-Sollzeit.' 
-              : `Spezifischer Drift für Note ${getNoteName(selectedNoteKey)}.`}
-          </p>
-        </div>
+      <D3DriftHistogram
+        sessions={data}
+        selectedNoteKey={selectedNoteKey}
+        onSelectNoteKey={setSelectedNoteKey}
+      />
 
-        {/* Die SVG Grafik */}
-        <div className="relative flex-1 min-h-[220px] bg-slate-800/40 p-4 rounded border border-slate-700/50 flex flex-col justify-end">
-          <svg className="w-full h-44" viewBox="0 0 300 120" preserveAspectRatio="none">
-              {/* Grid Linien */}
-              <line x1="150" y1="0" x2="150" y2="110" stroke={chartTheme.zeroLine} strokeDasharray="3,2" strokeWidth="1" />
-              <line x1="50" y1="0" x2="50" y2="110" stroke={chartTheme.axis} strokeWidth="0.5" />
-              <line x1="100" y1="0" x2="100" y2="110" stroke={chartTheme.axis} strokeWidth="0.5" />
-              <line x1="200" y1="0" x2="200" y2="110" stroke={chartTheme.axis} strokeWidth="0.5" />
-              <line x1="250" y1="0" x2="250" y2="110" stroke={chartTheme.axis} strokeWidth="0.5" />
+      <D3TrendChart sessions={data} />
 
-            {/* Treble-Balken (oben/hinter) */}
-            {histTreble.map((bin, idx) => {
-              const x = (idx / histTreble.length) * 300;
-              const barHeight = (bin.count / maxBinCount) * 100;
-              return (
-                <rect key={`t-${idx}`}
-                  x={x} y={110 - barHeight}
-                  width={Math.max(0.5, 300 / histTreble.length - 0.5)}
-                  height={barHeight}
-                  fill="#818cf8"
-                  opacity="0.5"
-                >
-                  <title>{`Diskant ${bin.lower} bis ${bin.upper} ms: ${bin.count} Noten`}</title>
-                </rect>
-              );
-            })}
-
-            {/* Bass-Balken (vorn) */}
-            {histBass.map((bin, idx) => {
-              const x = (idx / histBass.length) * 300;
-              const barHeight = (bin.count / maxBinCount) * 100;
-              return (
-                <rect key={`b-${idx}`}
-                  x={x} y={110 - barHeight}
-                  width={Math.max(0.5, 300 / histBass.length - 0.5)}
-                  height={barHeight}
-                  fill="#f59e0b"
-                  opacity="0.6"
-                >
-                  <title>{`Bass ${bin.lower} bis ${bin.upper} ms: ${bin.count} Noten`}</title>
-                </rect>
-              );
-            })}
-
-            {/* KDE-Kurven (Violin-Plot) */}
-            {kdePoints.all.length > 0 && (() => {
-              const fillD = kdeFillPath(kdePoints.all, 300, 110, minMs, maxMs);
-              const lineD = kdePath(kdePoints.all, 300, 110, minMs, maxMs);
-              return (
-                <>
-                  <path d={fillD} fill="#6366f1" opacity="0.12" />
-                  <path d={lineD} fill="none" stroke="#a5b4fc" strokeWidth="1.5" opacity="0.8" />
-                </>
-              );
-            })()}
-            {kdePoints.bass.length > 0 && (() => {
-              const d = kdePath(kdePoints.bass, 300, 110, minMs, maxMs);
-              return <path d={d} fill="none" stroke="#f59e0b" strokeWidth="1.5" opacity="0.6" />;
-            })()}
-            {kdePoints.treble.length > 0 && (() => {
-              const d = kdePath(kdePoints.treble, 300, 110, minMs, maxMs);
-              return <path d={d} fill="none" stroke="#818cf8" strokeWidth="1.5" opacity="0.6" />;
-            })()}
-
-            {/* Nullstellenlinie Text */}
-            <text x="153" y="12" fill={accent.red} fontSize="7" fontFamily="monospace" fontWeight="bold">Grid-Soll (0ms)</text>
-          </svg>
-          
-          {/* Legende */}
-          <div className="flex gap-4 mt-1 text-[9px] font-mono text-slate-400">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-400 opacity-60" /> Bass (&lt;C4)</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-indigo-400 opacity-50" /> Diskant (&ge;C4)</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-indigo-300 opacity-80" /> KDE (Gesamt)</span>
-          </div>
-
-          {/* X Achsenbeschriftung */}
-          <div className="flex justify-between mt-2 px-1 text-[9px] font-mono text-slate-400">
-            <span>-50ms (Früh)</span>
-            <span>0ms</span>
-            <span>+50ms (Spät)</span>
-          </div>
-        </div>
-
-        {/* Statistiken */}
-        <div className="grid grid-cols-4 gap-2 mt-4 text-center font-mono">
-          <div className="bg-slate-800/40 p-2.5 rounded border border-slate-700/50">
-            <div className="text-[9px] text-slate-400 uppercase tracking-wider">MEDIAN</div>
-            <div className={`text-xs font-bold ${Math.abs(stats.median) < 4 ? 'text-slate-100' : 'text-blue-400'}`}>
-              {stats.median > 0 ? `+${stats.median.toFixed(1)}` : stats.median.toFixed(1)} <span className="text-[8px] font-light">ms</span>
-            </div>
-          </div>
-          <div className="bg-slate-800/40 p-2.5 rounded border border-slate-700/50">
-            <div className="text-[9px] text-slate-400 uppercase tracking-wider">Jitter (STD)</div>
-            <div className="text-xs font-bold text-slate-100">
-              {stats.std.toFixed(1)} <span className="text-[8px] font-light">ms</span>
-            </div>
-          </div>
-          <div className="bg-slate-800/40 p-2.5 rounded border border-slate-700/50">
-            <div className="text-[9px] text-slate-400 uppercase tracking-wider">Schiefe (Skew)</div>
-            <div className={`text-xs font-bold ${Math.abs(stats.skewness) > 0.3 ? 'text-amber-400' : 'text-slate-100'}`}>
-              {stats.skewness > 0 ? `+${stats.skewness.toFixed(2)}` : stats.skewness.toFixed(2)}
-            </div>
-          </div>
-          <div className="bg-slate-800/40 p-2.5 rounded border border-slate-700/50">
-            <div className="text-[9px] text-slate-400 uppercase tracking-wider">Early/Late</div>
-            <div className="text-[10px] font-bold text-slate-300 mt-0.5">
-              -{stats.earlyPercent}% | +{stats.latePercent}%<span className="text-[8px] text-slate-500 ml-1">Bass {stats.bassPct}%</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Kurze Erklärung des Timings */}
-        <div className="mt-4 text-xs text-slate-400 leading-snug flex-1 bg-slate-800/40 p-3 rounded border border-slate-700/50 font-mono">
-          {Math.abs(stats.avg) < 3 && stats.std < 12 ? (
-            <span className="text-emerald-400">✔ Äußerst tightes Timing! Minimale Abweichung, maschinell präzise eingespielt.</span>
-          ) : stats.median > 6 ? (
-            <span className="text-slate-300">⚡ Timing-Tendenzen laid-back (behind the beat). Ergibt einen entspannten, ziehenden Musikgroove.</span>
-          ) : stats.median < -6 ? (
-            <span className="text-slate-300">⚡ Timing treibend (ahead of the beat). Erzeugt nervösen Drive für mehr Vorwärtsdrang.</span>
-          ) : (
-            <span className="text-slate-300">Natürlicher rhythmischer Rhythmus mit organischen Schwankungen.</span>
-          )}
-        </div>
-      </div>
-
-      {/* 2. DAILY TREND (6-MONATS-TREND) */}
-      <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 flex flex-col" id="chart-drift-trend">
-        <div className="mb-4">
-          <h3 className="text-xs font-bold tracking-widest text-slate-100 uppercase font-mono">
-            📈 Drift & Swing 6-Monats-Trend
-          </h3>
-          <p className="text-xs text-slate-400 mt-1 italic font-serif">
-            Zeitlicher Verlauf von mittlerer Abweichung (schwarz) & Swing-Stabilität (blau).
-          </p>
-        </div>
-
-        {dailyTrend.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center bg-slate-800/40 rounded border border-slate-700/50 p-5 text-slate-400 text-xs font-mono h-[220px]">
-            Keine Trend-Daten vorhanden. Bitte laden Sie Demo-Daten.
-          </div>
-        ) : (
-          <div className="relative flex-1 min-h-[220px] bg-slate-800/40 p-4 rounded border border-slate-700/50 flex flex-col justify-end">
-            <svg className="w-full h-44" viewBox="0 0 300 120" preserveAspectRatio="none">
-              {/* Grid Linien horizontal */}
-              <line x1="0" y1="30" x2="300" y2="30" stroke={chartTheme.axis} strokeWidth="0.5" strokeDasharray="2,2" />
-              <line x1="0" y1="60" x2="300" y2="60" stroke={chartTheme.axis} strokeWidth="0.5" strokeDasharray="2,2" />
-              <line x1="0" y1="90" x2="300" y2="90" stroke={chartTheme.axis} strokeWidth="0.5" strokeDasharray="2,2" />
-
-              {/* Verlauf 1: Drift (Schwarze schattierte Kurve) */}
-              {(() => {
-                const points = dailyTrend.map((d, idx) => {
-                  const x = dailyTrend.length > 1 ? (idx / (dailyTrend.length - 1)) * 300 : 150;
-                  const heightRange = trendMaxDrift - trendMinDrift;
-                  const ratio = heightRange > 0 ? (d.avgDrift - trendMinDrift) / heightRange : 0.5;
-                  const y = 110 - (ratio * 80);
-                  return `${x},${y}`;
-                });
-
-                const rollingPoints = dailyTrend.map((d, idx) => {
-                  const x = dailyTrend.length > 1 ? (idx / (dailyTrend.length - 1)) * 300 : 150;
-                  const heightRange = trendMaxDrift - trendMinDrift;
-                  const ratio = heightRange > 0 ? (d.rollingDrift - trendMinDrift) / heightRange : 0.5;
-                  const y = 110 - (ratio * 80);
-                  return `${x},${y}`;
-                });
-
-                const areaPoints = [
-                  `0,110`,
-                  ...points,
-                  `300,110`
-                ].join(" ");
-
-                return (
-                  <>
-                    {/* Gefüllter Bereich */}
-                    <polygon points={areaPoints} fill="url(#slateGradient)" opacity="0.10" />
-                    
-                    {/* Tägliche Knoten */}
-                    {dailyTrend.length < 50 && dailyTrend.map((d, idx) => {
-                      const coord = points[idx].split(",");
-                      return <circle key={idx} cx={coord[0]} cy={coord[1]} r="2" fill={textTheme.muted} opacity="0.4" />;
-                    })}
-
-                    {/* Glatte Trend-Linie */}
-                    <polyline 
-                      points={rollingPoints.join(" ")} 
-                      fill="none" 
-                      stroke={textTheme.bright} 
-                      strokeWidth="2" 
-                    />
-                  </>
-                );
-              })()}
-
-              {/* Verlauf 2: Swing-Faktor (Blaue gestrichelte Linie) */}
-              {(() => {
-                const pointsSwing = dailyTrend.map((d, idx) => {
-                  const x = dailyTrend.length > 1 ? (idx / (dailyTrend.length - 1)) * 300 : 150;
-                  const ratio = (d.rollingSwing - 50) / 15;
-                  const clampedRatio = Math.max(0, Math.min(1, ratio));
-                  const y = 110 - (clampedRatio * 80);
-                  return `${x},${y}`;
-                });
-
-                return (
-                  <polyline 
-                    points={pointsSwing.join(" ")} 
-                    fill="none" 
-                    stroke={accent.blue} 
-                    strokeWidth="1.5" 
-                    strokeDasharray="4,2" 
-                  />
-                );
-              })()}
-
-              {/* Gradients definieren */}
-              <defs>
-                <linearGradient id="slateGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={textTheme.bright} />
-                  <stop offset="100%" stopColor={textTheme.bright} stopOpacity="0" />
-                </linearGradient>
-              </defs>
-            </svg>
-
-            {/* Legende und Achsenbeschriftung */}
-            <div className="flex justify-between items-center mt-2 px-1 text-[9px] font-mono text-slate-400">
-              <span>Januar</span>
-              <span>März</span>
-              <span>Juni</span>
-            </div>
-          </div>
-        )}
-
-        <div className="mt-4 flex flex-col sm:flex-row justify-between items-baseline bg-slate-800/40 p-4 rounded border border-slate-700/50 font-mono text-xs gap-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-slate-900 rounded-full inline-block"></span>
-            <div>
-              <div className="text-[9px] text-slate-500">MESSDRFT</div>
-              <div className="font-bold text-slate-850">
-                {dailyTrend.length > 0 ? dailyTrend[dailyTrend.length - 1].rollingDrift.toFixed(1) : 0} ms
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-blue-500 rounded-full inline-block"></span>
-            <div>
-              <div className="text-[9px] text-slate-500">SWING 16TEL</div>
-              <div className="font-bold text-blue-600">
-                {dailyTrend.length > 0 ? dailyTrend[dailyTrend.length - 1].rollingSwing.toFixed(1) : 50.0}%
-              </div>
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-400 max-w-[120px] sm:text-right leading-tight">
-            Swing-Entwicklung über das Halbjahr.
-          </p>
-        </div>
-      </div>
-
-      {/* 3. INTERAKTIV PIANO ROLL KEY HEATMAP */}
+      {/* 3. INTERAKTIV PIANO ROLL – Tastatur & Detail */}
       <div className="bg-slate-900/80 border border-slate-700/50 rounded-lg p-6 flex flex-col" id="chart-piano-roll">
         <div className="mb-4">
           <h3 className="text-xs font-bold tracking-widest text-slate-100 uppercase font-mono">
             🎹 Tonleiter-Verteilung & Timing-Zoom
           </h3>
           <p className="text-xs text-slate-400 mt-1 italic font-serif">
-            Isoliere spezifische Tonschichten um deren spezifischen Groove zu entlarven.
+            Klicke auf eine Taste, um Timing & Dynamik isoliert anzuzeigen.
           </p>
         </div>
 
-        {/* Virtuelles Piano Roll */}
-        <div className="flex-1 bg-slate-950 rounded border border-slate-700/50 p-3 overflow-y-auto max-h-[220px] flex gap-3">
-          
-          {/* Piano Keyboard */}
-          <div className="w-1/2 flex flex-col border-r border-slate-700/50 pr-2">
-            {pianoNotesStatus.slice(0, 24).map((item) => {
+        {/* Piano-Roll Dichte – horizontale Klaviatur */}
+        <div className="bg-slate-950 rounded border border-slate-700/50 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">Klaviatur</span>
+            <span className="text-[8px] text-slate-500 font-mono">dunkler = häufiger gespielt</span>
+          </div>
+          <div className="flex gap-0.5 overflow-x-auto pb-1" style={{ flexWrap: 'wrap' }}>
+            {pianoNotesStatus.map((item) => {
               const isSelected = selectedNoteKey === item.key;
-              
-              let bgStyle = "bg-white text-slate-800 border-slate-200";
-              if (item.isBlack) {
-                bgStyle = "bg-slate-900 text-slate-300 border-slate-800";
-              }
-              
-              if (item.count > 0) {
-                bgStyle = item.isBlack 
-                  ? "bg-blue-900/90 text-blue-100 border-blue-950" 
-                  : "bg-blue-50 text-blue-900 border-blue-200";
-              }
-              if (isSelected) {
-                bgStyle = "bg-slate-800 text-white font-bold border-slate-950 ring-1 ring-slate-900";
-              }
-
               return (
-                <button
+                <div
                   key={item.key}
-                  id={`piano-key-${item.key}`}
+                  className={`w-6 h-6 flex items-center justify-center text-[7px] font-mono font-bold rounded-sm cursor-pointer hover:ring-1 hover:ring-slate-400 shrink-0 transition-all ${isSelected ? 'ring-2 ring-indigo-400 scale-110' : ''}`}
+                  style={{
+                    backgroundColor: isSelected
+                      ? '#6366f1'
+                      : `rgba(99, 102, 241, ${0.08 + item.intensity * 0.82})`,
+                    color: isSelected ? 'white' : item.intensity > 0.5 ? 'white' : '#475569',
+                  }}
+                  title={`${item.name}: ${item.count} mal`}
                   onClick={() => setSelectedNoteKey(isSelected ? null : item.key)}
-                  className={`flex justify-between items-center h-5 w-full text-[9px] font-mono px-2 py-0.5 border-b rounded-sm cursor-pointer transition-all ${bgStyle}`}
                 >
-                  <span>{item.name}</span>
-                  <span className="opacity-80 text-[8px] font-semibold">{item.count > 0 ? `${item.count}n` : ''}</span>
-                </button>
+                  {item.name}
+                </div>
               );
             })}
           </div>
+        </div>
 
-          {/* Zoom Info Panel */}
-          <div className="w-1/2 flex flex-col justify-between p-3 rounded bg-slate-900/80 border border-slate-700/50 font-mono text-[10px]" id="piano-key-detail">
-            {selectedNoteInfo ? (
-              <div className="flex flex-col gap-1.5">
-                <div className="text-slate-100 font-bold text-center border-b border-slate-700/50 pb-1 flex justify-between items-center text-[11px]">
-                  <span>Note {selectedNoteInfo.noteName}</span>
-                  <span className="text-[8px] text-slate-400 font-normal">MIDI {selectedNoteKey}</span>
-                </div>
-                
-                <div className="flex justify-between items-center py-1 border-b border-slate-700/30">
-                  <span className="text-slate-400">Events:</span>
-                  <span className="text-slate-100 font-medium">{selectedNoteInfo.count}</span>
-                </div>
-                
-                <div className="flex justify-between items-center py-1 border-b border-slate-700/30">
-                  <span className="text-slate-400">Trend:</span>
-                  <span className={`font-medium ${parseFloat(selectedNoteInfo.avgDriftMs) > 0 ? 'text-blue-400' : 'text-slate-100'}`}>
-                    {parseFloat(selectedNoteInfo.avgDriftMs) > 0 ? 'Laid-back' : 'Ahead'} ({selectedNoteInfo.avgDriftMs}ms)
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center py-1 border-b border-slate-700/30">
-                  <span className="text-slate-400">Fehler ø:</span>
-                  <span className="text-slate-100 font-medium">{selectedNoteInfo.absDriftMs} ms</span>
-                </div>
-
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Anschlag:</span>
-                  <span className="text-blue-400 font-medium">{selectedNoteInfo.avgVelocity}</span>
-                </div>
+        {/* Detail-Panel */}
+        <div className="mt-3 p-3 rounded bg-slate-950 border border-slate-700/50 font-mono text-[10px]" id="piano-key-detail">
+          {selectedNoteInfo ? (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+              <div className="text-slate-100 font-bold flex items-center gap-2">
+                <span className="bg-indigo-600 text-white text-[8px] px-1.5 py-0.5 rounded">MIDI {selectedNoteKey}</span>
+                <span>Note {selectedNoteInfo.noteName}</span>
               </div>
-            ) : (
-              <div className="h-full flex flex-col justify-center items-center text-center text-slate-400 p-1 leading-relaxed">
-                <p className="text-[10px]">Wähle links eine Keyboard-Taste.</p>
-                <p className="text-[8px] mt-1.5 opacity-80 font-sans italic">Jede Note wird isoliert angezeigt.</p>
-              </div>
-            )}
-            
-            {selectedNoteInfo && (
+              <span className="text-slate-400">Events: <span className="text-slate-100 font-medium">{selectedNoteInfo.count}</span></span>
+              <span className="text-slate-400">Trend: <span className={`font-medium ${parseFloat(selectedNoteInfo.avgDriftMs) > 0 ? 'text-blue-400' : 'text-slate-100'}`}>
+                {parseFloat(selectedNoteInfo.avgDriftMs) > 0 ? 'Laid-back' : 'Ahead'} ({selectedNoteInfo.avgDriftMs}ms)
+              </span></span>
+              <span className="text-slate-400">Fehler ø: <span className="text-slate-100 font-medium">{selectedNoteInfo.absDriftMs} ms</span></span>
+              <span className="text-slate-400">Anschlag: <span className="text-blue-400 font-medium">{selectedNoteInfo.avgVelocity}</span></span>
               <button 
                 onClick={() => setSelectedNoteKey(null)}
-                className="mt-3 text-[9px] text-center bg-slate-700 hover:bg-slate-600 text-slate-200 py-1 px-2 rounded border border-slate-600 transition-colors cursor-pointer font-sans"
+                className="text-[9px] bg-slate-700 hover:bg-slate-600 text-slate-200 py-0.5 px-2 rounded border border-slate-600 transition-colors cursor-pointer"
               >
                 Zurücksetzen
               </button>
-            )}
-          </div>
-
-        </div>
-
-        {/* Note Density Strip - horizontal heatmap */}
-        <div className="mt-3">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">Piano-Roll Dichte</span>
-            <span className="text-[8px] text-slate-500 font-mono">dunkler = häufiger</span>
-          </div>
-          <div className="flex gap-0.5 overflow-x-auto pb-1" style={{ flexWrap: 'wrap' }}>
-            {pianoNotesStatus.map((item) => (
-              <div
-                key={item.key}
-                className="w-6 h-5 flex items-center justify-center text-[7px] font-mono font-bold rounded-sm cursor-pointer hover:ring-1 hover:ring-slate-400 shrink-0"
-                style={{
-                  backgroundColor: `rgba(99, 102, 241, ${0.08 + item.intensity * 0.82})`,
-                  color: item.intensity > 0.5 ? 'white' : '#475569',
-                }}
-                title={`${item.name}: ${item.count} mal`}
-                onClick={() => setSelectedNoteKey(selectedNoteKey === item.key ? null : item.key)}
-              >
-                {item.name}
-              </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="text-slate-400 text-center text-[10px] py-1">
+              Wähle eine Taste aus der Klaviatur oben.
+            </div>
+          )}
         </div>
 
         <div className="mt-3 p-2.5 bg-slate-800/60 border border-slate-600 rounded text-slate-300 text-[10px] font-mono flex items-start gap-2">

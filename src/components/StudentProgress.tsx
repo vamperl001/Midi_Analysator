@@ -1,39 +1,19 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, Fragment } from 'react';
 import { AlsFileStats, ScheduleEntry } from '../types';
-import { User, Edit3, Save, Upload, Download, RefreshCw, TrendingUp, Activity } from 'lucide-react';
+import { User, Edit3, Save, Upload, Download, RefreshCw, Info, ChevronDown, ChevronRight, Search, Calendar, BarChart3 } from 'lucide-react';
 
 const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
-function parseTime(t: string): number {
-  const [h, m] = t.split(':').map(Number);
-  return h * 60 + m;
-}
-
-function matchStudent(session: AlsFileStats, schedule: ScheduleEntry[]): string | null {
-  if (!schedule.length) return null;
-  const sessionStart = parseTime(session.time);
-  // First try exact match (within slot boundaries +5min tolerance)
-  for (const entry of schedule) {
-    if (entry.weekday !== session.weekday) continue;
-    const slotStart = parseTime(entry.time);
-    const slotEnd = slotStart + entry.duration + 5;
-    if (sessionStart >= slotStart - 5 && sessionStart <= slotEnd) {
-      return entry.studentName;
-    }
-  }
-  // Fallback: find nearest slot on the same weekday within 4 hours
-  let bestDist = 4 * 60;
-  let bestName: string | null = null;
-  for (const entry of schedule) {
-    if (entry.weekday !== session.weekday) continue;
-    const slotStart = parseTime(entry.time);
-    const dist = Math.abs(sessionStart - slotStart);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestName = entry.studentName;
-    }
-  }
-  return bestName;
+function matchStudentByWeekday(
+  session: AlsFileStats,
+  schedule: ScheduleEntry[],
+  counter: Map<number, number>
+): string | null {
+  const slots = schedule.filter(e => e.weekday === session.weekday);
+  if (slots.length === 0) return null;
+  const idx = counter.get(session.weekday) ?? 0;
+  counter.set(session.weekday, idx + 1);
+  return slots[idx % slots.length].studentName;
 }
 
 function anonymizeNames(schedule: ScheduleEntry[]): ScheduleEntry[] {
@@ -58,6 +38,193 @@ function anonymizeNames(schedule: ScheduleEntry[]): ScheduleEntry[] {
   }));
 }
 
+const METRIC_INFO: Record<string, {
+  label: string; unit: string; description: string;
+  good?: string; medium?: string; bad?: string;
+  goodColor?: string; mediumColor?: string; badColor?: string;
+  barColor?: (val: number) => string;
+  higherIsBetter?: boolean;
+}> = {
+  drift: {
+    label: 'Timing-Drift', unit: 'ms',
+    description: 'Durchschnittliche Abweichung vom Grid. Niedriger = präziser.',
+    good: '< 12 ms', medium: '12–20 ms', bad: '> 20 ms',
+    goodColor: 'text-emerald-400', mediumColor: 'text-amber-400', badColor: 'text-red-400',
+    barColor: (v: number) => v < 12 ? 'bg-emerald-500' : v < 20 ? 'bg-amber-500' : 'bg-red-500',
+    higherIsBetter: false,
+  },
+  bpm: {
+    label: 'Tempo (BPM)', unit: 'BPM',
+    description: 'Geschätztes Tempo. Zeigt Tempostabilität über die Zeit.',
+  },
+  velocity: {
+    label: 'Anschlagsstärke', unit: '',
+    description: 'Mittlere Velocity (0–127). Gleichmäßigkeit der Dynamik.',
+  },
+  focusScore: {
+    label: 'Focus Score', unit: '',
+    description: 'Gesamtqualität der Session (0–100).',
+    good: '≥ 70', medium: '40–69', bad: '< 40',
+    goodColor: 'text-emerald-400', mediumColor: 'text-amber-400', badColor: 'text-red-400',
+    barColor: (v: number) => v >= 70 ? 'bg-emerald-500' : v >= 40 ? 'bg-amber-500' : 'bg-red-500',
+    higherIsBetter: true,
+  },
+};
+
+const ALL_METRICS = ['drift', 'bpm', 'velocity', 'focusScore'] as const;
+
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex items-center">
+      <Info className="w-3 h-3 text-slate-500 hover:text-slate-300 cursor-help ml-1" />
+      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-900 text-slate-200 text-[9px] px-2 py-1 rounded border border-slate-700 whitespace-nowrap z-10 shadow-lg">
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function MiniBarChart({ values, labels, barColor, good, medium, bad, unit }: {
+  values: number[]; labels: string[]; barColor: (v: number) => string;
+  good?: string; medium?: string; bad?: string; unit?: string;
+}) {
+  const maxVal = Math.max(...values, 1);
+  return (
+    <div className="space-y-1">
+      <div className="flex items-end gap-0.5 h-20">
+        {values.map((v, i) => (
+          <div key={i} className="flex-1 flex flex-col justify-end items-center group/chart">
+            <div
+              className={`w-full rounded-t transition-all duration-200 ${barColor(v)}`}
+              style={{ height: `${(v / maxVal) * 100}%`, minHeight: 2 }}
+              title={`${labels[i]}: ${v}${unit ?? ''}`}
+            />
+            <span className="text-[7px] text-slate-600 mt-0.5 leading-tight">{labels[i]}</span>
+          </div>
+        ))}
+      </div>
+      {(good || medium || bad) && (
+        <div className="flex gap-2 text-[8px] text-slate-500 justify-center">
+          {good && <span className="text-emerald-500/70">{good}</span>}
+          {medium && <span className="text-amber-500/70">{medium}</span>}
+          {bad && <span className="text-red-500/70">{bad}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricCard({ sessions, metric }: { sessions: AlsFileStats[]; metric: typeof ALL_METRICS[number] }) {
+  const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
+  const info = METRIC_INFO[metric];
+  if (!info) return null;
+
+  let labels: string[];
+  let values: number[];
+  let barColorFn = info.barColor ?? (() => 'bg-blue-500');
+
+  switch (metric) {
+    case 'drift':
+      labels = sorted.map(s => s.date.slice(5));
+      values = sorted.map(s => s.avgDriftMs);
+      break;
+    case 'bpm':
+      labels = sorted.map(s => s.date.slice(5));
+      values = sorted.map(s => s.estimatedBpm ?? s.tempo);
+      break;
+    case 'velocity':
+      labels = sorted.map(s => s.date.slice(5));
+      values = sorted.map(s => s.avgVelocity);
+      break;
+    case 'focusScore': {
+      const withFocus = sorted.filter(s => s.focusScore != null);
+      if (withFocus.length === 0) return null;
+      labels = withFocus.map(s => s.date.slice(5));
+      values = withFocus.map(s => s.focusScore!);
+      break;
+    }
+    default:
+      return null;
+  }
+
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  const first = values[0];
+  const last = values[values.length - 1];
+  const trend = last - first;
+  const trendStr = trend > 0
+    ? `+${trend.toFixed(1)}${info.unit}`
+    : `${trend.toFixed(1)}${info.unit}`;
+  const isGood = info.higherIsBetter ? trend > 0 : trend < 0;
+
+  return (
+    <div className="bg-slate-800/40 border border-slate-700/50 rounded p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">{info.label}</span>
+          <InfoTooltip text={info.description} />
+        </div>
+        <div className="flex items-center gap-2 text-[9px]">
+          <span className="text-slate-500">Ø {avg.toFixed(1)}</span>
+          <span className={`font-bold ${isGood ? 'text-emerald-400' : 'text-red-400'}`}>
+            {trend > 0 ? '↑' : '↓'} {trendStr}
+          </span>
+        </div>
+      </div>
+      <MiniBarChart
+        values={values}
+        labels={labels}
+        barColor={barColorFn}
+        good={info.good}
+        medium={info.medium}
+        bad={info.bad}
+        unit={info.unit}
+      />
+    </div>
+  );
+}
+
+function MetricExplanationHelp({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <div className="bg-indigo-950/30 border border-indigo-800/30 rounded-lg">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between p-3 text-xs font-semibold text-slate-300 hover:text-slate-100 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <Info className="w-3.5 h-3.5 text-indigo-400" />
+          Metrik-Erklärungen
+        </span>
+        {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2 text-[10px] text-slate-400">
+          {Object.entries(METRIC_INFO).map(([key, info]) => (
+            <div key={key} className="border-l-2 border-indigo-800/40 pl-2">
+              <div className="font-bold text-slate-300">{info.label}</div>
+              <p className="italic font-serif">{info.description}</p>
+              {info.good && (
+                <div className="flex gap-3 mt-0.5 text-[9px]">
+                  <span className="text-emerald-500">Gut: {info.good}</span>
+                  {info.medium && <span className="text-amber-500">Mittel: {info.medium}</span>}
+                  {info.bad && <span className="text-red-500">Verbesserung: {info.bad}</span>}
+                </div>
+              )}
+            </div>
+          ))}
+          <div className="border-l-2 border-indigo-800/40 pl-2">
+            <div className="font-bold text-slate-300">Lehrer/Schüler-Aufteilung</div>
+            <p className="italic font-serif">Vergleich von Lehrervorspiel und Schülerspiel innerhalb einer Session. Zeigt, wie viel der Schüler selbstständig spielt und wie präzise.</p>
+          </div>
+          <div className="border-l-2 border-indigo-800/40 pl-2">
+            <div className="font-bold text-slate-300">Sessions-Anzahl</div>
+            <p className="italic font-serif">Gesamtzahl der erfassten Übeeinheiten. Mehr Sessions = mehr Übung = bessere Lernkurve.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StudentCharts({ sessions }: { sessions: AlsFileStats[] }) {
   const n = sessions.length;
   if (n === 0) return null;
@@ -71,6 +238,7 @@ function StudentCharts({ sessions }: { sessions: AlsFileStats[] }) {
   const firstDrift = drifts.length > 0 ? drifts[0] : 0;
   const lastDrift = drifts.length > 0 ? drifts[drifts.length - 1] : 0;
   const driftChange = firstDrift > 0 ? ((firstDrift - lastDrift) / firstDrift * 100).toFixed(0) : '0';
+  const driftImproving = Number(driftChange) > 0;
 
   const withSplit = sessions.filter(s => s.teacherStudentSplit);
   const withStudent = withSplit.filter(s => s.teacherStudentSplit && s.teacherStudentSplit.studentNoteCount > 0);
@@ -84,138 +252,70 @@ function StudentCharts({ sessions }: { sessions: AlsFileStats[] }) {
     ? withSplit.reduce((a, s) => a + (s.teacherStudentSplit!.studentNoteCount / Math.max(1, s.notesCount)) * 100, 0) / withSplit.length
     : 0;
 
+  const driftStatus = avgDrift < 12 ? 'text-emerald-400' : avgDrift < 20 ? 'text-amber-400' : 'text-red-400';
+
   return (
-    <>
-      <div className="grid grid-cols-4 gap-3 mb-4 text-center font-mono">
-        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
+    <div className="space-y-3">
+      <div className="grid grid-cols-4 gap-2">
+        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50 text-center">
           <div className="text-[8px] text-slate-400 uppercase font-black">Sessions</div>
           <div className="text-sm font-bold text-white">{n}</div>
+          <div className="text-[7px] text-slate-600">Übungseinheiten</div>
         </div>
-        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
-          <div className="text-[8px] text-slate-400 uppercase font-black">ø Drift</div>
-          <div className="text-sm font-bold text-amber-400">{avgDrift.toFixed(1)}ms</div>
-        </div>
-        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
+        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50 text-center">
           <div className="text-[8px] text-slate-400 uppercase font-black">Trend</div>
-          <div className={`text-sm font-bold ${Number(driftChange) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {Number(driftChange) > 0 ? '↓' : '↑'} {Math.abs(Number(driftChange))}%
+          <div className={`text-sm font-bold ${driftImproving ? 'text-emerald-400' : 'text-red-400'}`}>
+            {driftImproving ? '↓' : '↑'} {Math.abs(Number(driftChange))}%
           </div>
+          <div className="text-[7px] text-slate-600">Drift-Verbesserung</div>
         </div>
-        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50">
-          <div className="text-[8px] text-slate-400 uppercase font-black">ø BPM</div>
+        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50 text-center">
+          <div className="text-[8px] text-slate-400 uppercase font-black">Drift Ø</div>
+          <div className={`text-sm font-bold ${driftStatus}`}>{avgDrift.toFixed(1)}ms</div>
+          <div className="text-[7px] text-slate-600">Timing-Präzision</div>
+        </div>
+        <div className="bg-slate-800/40 p-2 rounded border border-slate-700/50 text-center">
+          <div className="text-[8px] text-slate-400 uppercase font-black">BPM Ø</div>
           <div className="text-sm font-bold text-white">{avgBpm.toFixed(0)}</div>
+          <div className="text-[7px] text-slate-600">Ø Tempo</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-        <div>
-          <div className="text-xs font-semibold text-slate-400 mb-1">Drift-Entwicklung</div>
-          <div className="h-24 flex items-end gap-1">
-            {sorted.map((s, i) => {
-              const maxDrift = Math.max(...sorted.map(x => x.avgDriftMs), 1);
-              const h = (s.avgDriftMs / maxDrift) * 100;
-              const color = s.avgDriftMs < 12 ? 'bg-emerald-500' : s.avgDriftMs < 20 ? 'bg-amber-500' : 'bg-red-500';
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${s.date}: ${s.avgDriftMs.toFixed(1)}ms`}>
-                  <div className={`w-full ${color} rounded-t`} style={{ height: `${h}%`, minHeight: 2 }} />
-                  <span className="text-[8px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div>
-          <div className="text-xs font-semibold text-slate-400 mb-1">Drift (ms) &Oslash;</div>
-          <div className="h-24 flex items-end gap-1">
-            {sessions.map((s, i) => {
-              const maxDrift = Math.max(...sessions.map(x => x.avgDriftMs), 1);
-              const h = (s.avgDriftMs / maxDrift) * 100;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                  <div className="w-full bg-amber-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div>
-          <div className="text-xs font-semibold text-slate-400 mb-1">BPM</div>
-          <div className="h-24 flex items-end gap-1">
-            {sessions.map((s, i) => {
-              const bpm = s.estimatedBpm ?? s.tempo;
-              const minBpm = Math.min(...sessions.map(x => x.estimatedBpm ?? x.tempo));
-              const maxBpm = Math.max(...sessions.map(x => x.estimatedBpm ?? x.tempo));
-              const range = Math.max(maxBpm - minBpm, 5);
-              const h = (bpm - minBpm) / range * 100;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                  <div className="w-full bg-emerald-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div>
-          <div className="text-xs font-semibold text-slate-400 mb-1">Velocity &Oslash;</div>
-          <div className="h-24 flex items-end gap-1">
-            {sessions.map((s, i) => {
-              const minVel = Math.min(...sessions.map(x => x.avgVelocity));
-              const maxVel = Math.max(...sessions.map(x => x.avgVelocity));
-              const range = Math.max(maxVel - minVel, 10);
-              const h = (s.avgVelocity - minVel) / range * 100;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                  <div className="w-full bg-purple-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div>
-          <div className="text-xs font-semibold text-slate-400 mb-1">Focus Score</div>
-          <div className="h-24 flex items-end gap-1">
-            {sessions.map((s, i) => {
-              const minScore = Math.min(...sessions.map(x => x.focusScore ?? 0));
-              const maxScore = Math.max(...sessions.map(x => x.focusScore ?? 0));
-              const range = Math.max(maxScore - minScore, 10);
-              const h = ((s.focusScore ?? 0) - minScore) / range * 100;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                  <div className="w-full bg-rose-500 rounded-t" style={{ height: `${h}%`, minHeight: 2 }} />
-                  <span className="text-[9px] text-slate-500 rotate-45 origin-left whitespace-nowrap">{s.date.slice(5)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        {ALL_METRICS.map(m => (
+          <Fragment key={m}>
+            <MetricCard sessions={sessions} metric={m} />
+          </Fragment>
+        ))}
       </div>
 
       {withSplit.length > 0 && (
-        <div className="text-[10px] text-slate-300 bg-amber-900/20 border border-amber-800/30 rounded p-2 flex flex-wrap gap-3">
-          <span className="font-semibold">Lehrer/Sch&uuml;ler:</span>
-          <span>Lehrer-Drift &Oslash; {teacherDrift.toFixed(1)} ms</span>
-          <span>Sch&uuml;ler-Drift &Oslash; {studentDrift.toFixed(1)} ms</span>
-          <span>Sch&uuml;ler-Anteil &Oslash; {studentPct.toFixed(0)}%</span>
+        <div className="text-[10px] bg-amber-900/20 border border-amber-800/30 rounded p-2 space-y-1">
+          <div className="font-semibold text-slate-300 flex items-center gap-1">
+            <BarChart3 className="w-3 h-3" />
+            Lehrer/Schüler-Aufteilung
+          </div>
+          <div className="flex flex-wrap gap-3 text-slate-300">
+            <span>Lehrer-Drift Ø <span className="font-bold text-emerald-400">{teacherDrift.toFixed(1)} ms</span></span>
+            <span>Schüler-Drift Ø <span className="font-bold text-amber-400">{studentDrift.toFixed(1)} ms</span></span>
+            <span>Schüler-Anteil Ø <span className="font-bold text-blue-400">{studentPct.toFixed(0)}%</span></span>
+          </div>
+          <div className="text-[9px] text-slate-500 italic font-serif">
+            {studentDrift < teacherDrift * 1.2
+              ? 'Schüler spielt fast so präzise wie der Lehrer – sehr gut!'
+              : 'Schüler benötigt noch Übung – der Lehrer zeigt vor.'}
+          </div>
         </div>
       )}
 
-      <div className="text-xs text-slate-400 grid grid-cols-5 gap-2 pt-2 border-t border-slate-700/50">
-        <div>{n} Sessions</div>
-        <div>BPM &Oslash; {avgBpm.toFixed(1)}</div>
-        <div>Drift &Oslash; {avgDrift.toFixed(1)} ms</div>
-        <div>Velocity &Oslash; {avgVel}</div>
-        <div>Focus &Oslash; {avgFocus}</div>
+      <div className="text-[9px] text-slate-600 grid grid-cols-5 gap-2 pt-1 border-t border-slate-700/30">
+        <span>{n} Sessions</span>
+        <span>BPM Ø {avgBpm.toFixed(1)}</span>
+        <span>Drift Ø {avgDrift.toFixed(1)} ms</span>
+        <span>Velocity Ø {avgVel}</span>
+        <span>Focus Ø {avgFocus}</span>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -230,22 +330,26 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
   const [editSchedule, setEditSchedule] = useState<ScheduleEntry[]>(() => [...schedule]);
   const [importText, setImportText] = useState('');
   const [showImport, setShowImport] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [studentFilter, setStudentFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const studentGroups = useMemo(() => {
     const map = new Map<string, AlsFileStats[]>();
     const unmatched: AlsFileStats[] = [];
+    const weekdayCounter = new Map<number, number>();
     for (const s of sessions) {
-      const name = matchStudent(s, schedule);
+      const name = matchStudentByWeekday(s, schedule, weekdayCounter);
       if (name) {
         if (!map.has(name)) map.set(name, []);
-        // Zeit aus dem passenden Slot übernehmen
         const match = schedule.find(e => e.studentName === name);
         map.get(name)!.push(match && match.time !== s.time ? { ...s, time: match.time } : s);
       } else {
         unmatched.push(s);
       }
     }
-    // Unzugeordnete Sessions nach Wochentag gruppieren
     if (unmatched.length > 0) {
       const wdMap = new Map<string, AlsFileStats[]>();
       for (const s of unmatched) {
@@ -263,6 +367,38 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
     }
     return map;
   }, [sessions, schedule]);
+
+  const allDates = useMemo(() => {
+    const dates = sessions.map(s => s.date).filter(Boolean).sort();
+    return { min: dates[0] || '', max: dates[dates.length - 1] || '' };
+  }, [sessions]);
+
+  const filteredGroups = useMemo(() => {
+    const entries = Array.from(studentGroups.entries())
+      .sort(([a], [b]) => {
+        const aUnmatched = a.includes('(unzugeordnet)');
+        const bUnmatched = b.includes('(unzugeordnet)');
+        if (aUnmatched !== bUnmatched) return aUnmatched ? 1 : -1;
+        return a.localeCompare(b);
+      });
+
+    return entries.filter(([name, sessions]) => {
+      if (studentFilter && !name.toLowerCase().includes(studentFilter.toLowerCase())) return false;
+      if (dateFrom || dateTo) {
+        return sessions.some(s => {
+          if (dateFrom && s.date < dateFrom) return false;
+          if (dateTo && s.date > dateTo) return false;
+          return true;
+        });
+      }
+      return true;
+    });
+  }, [studentGroups, studentFilter, dateFrom, dateTo]);
+
+  function getStudentDateRange(studentSessions: AlsFileStats[]): { min: string; max: string } {
+    const dates = studentSessions.map(s => s.date).filter(Boolean).sort();
+    return { min: dates[0] || '', max: dates[dates.length - 1] || '' };
+  }
 
   const handleSave = useCallback(async () => {
     onScheduleChange(editSchedule);
@@ -314,7 +450,6 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
           duration: dur > 0 ? dur : 30,
         });
       }
-      // Deduplicate (last wins for same weekday+time)
       const map = new Map<string, ScheduleEntry>();
       for (const e of entries) {
         map.set(`${e.weekday}|${e.time}`, e);
@@ -339,6 +474,23 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
     URL.revokeObjectURL(url);
   };
 
+  const toggleCollapse = (name: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const collapseAll = () => {
+    setCollapsed(new Set(filteredGroups.map(([name]) => name)));
+  };
+
+  const expandAll = () => {
+    setCollapsed(new Set());
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -348,60 +500,17 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
         </h3>
         <div className="flex items-center gap-2">
           <button
-            onClick={async () => {
-              try {
-                const res = await fetch('/api/axinio/timetable');
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                const data = await res.json();
-                if (!data.entries?.length) throw new Error('Keine Termine gefunden');
-                const entries: ScheduleEntry[] = [];
-                for (const e of data.entries) {
-                  if (!e.date || !e.start || !e.students?.length) continue;
-                  const dt = new Date(e.date);
-                  const wd = dt.getDay();
-                  const timeStr = e.start.includes('T') ? e.start.split('T')[1].slice(0, 5) :
-                                  e.start.includes(' ') ? e.start.split(' ')[1].slice(0, 5) :
-                                  e.start.slice(0, 5);
-                  const endStr = e.end?.includes('T') ? e.end.split('T')[1].slice(0, 5) :
-                                 e.end?.includes(' ') ? e.end.split(' ')[1].slice(0, 5) :
-                                 e.end?.slice(0, 5) || '';
-                  const [sh, sm] = timeStr.split(':').map(Number);
-                  const [eh, em] = endStr ? endStr.split(':').map(Number) : [sh + 0, sm + 30];
-                  const dur = (eh * 60 + em) - (sh * 60 + sm);
-                  entries.push({
-                    weekday: wd,
-                    time: timeStr,
-                    studentName: e.students[0],
-                    duration: dur > 0 ? dur : 30,
-                  });
-                }
-                const map = new Map<string, ScheduleEntry>();
-                for (const e of entries) {
-                  map.set(`${e.weekday}|${e.time}`, e);
-                }
-                let merged = Array.from(map.values()).sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time));
-                merged = anonymizeNames(merged);
-                setEditSchedule(merged);
-                onScheduleChange(merged);
-                try {
-                  await fetch('/api/schedule', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ schedule: merged }),
-                  });
-                } catch {}
-                alert(`${merged.length} Zeit-Slots aus Axinio importiert und anonymisiert.`);
-              } catch (err) {
-                alert('Axinio-Import fehlgeschlagen: ' + (err instanceof Error ? err.message : String(err)));
-              }
-            }}
-            className="text-xs flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-900/30 text-emerald-300 border border-emerald-800/50 hover:bg-emerald-900/50 transition-colors"
+            disabled
+            title="Import deaktiviert"
+            className="text-xs flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-900/30 text-emerald-700 border border-emerald-800/30 opacity-50 cursor-not-allowed"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Axinio live
           </button>
           <button
-            onClick={() => { setShowImport(!showImport); setImportText(''); }}
-            className="text-xs flex items-center gap-1 px-3 py-1.5 rounded bg-indigo-900/30 text-indigo-300 border border-indigo-800/50 hover:bg-indigo-900/50 transition-colors"
+            disabled
+            title="Import deaktiviert"
+            className="text-xs flex items-center gap-1 px-3 py-1.5 rounded bg-indigo-900/30 text-indigo-700 border border-indigo-800/30 opacity-50 cursor-not-allowed"
           >
             <Upload className="w-3.5 h-3.5" />
             Importieren
@@ -423,7 +532,63 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
         </div>
       </div>
 
-      {showImport && (
+      <MetricExplanationHelp open={showHelp} onToggle={() => setShowHelp(!showHelp)} />
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-800/40 border border-slate-700/50 rounded-lg p-2">
+        <div className="flex items-center gap-1 flex-1 min-w-[140px]">
+          <Search className="w-3 h-3 text-slate-500" />
+          <input
+            type="text"
+            value={studentFilter}
+            onChange={e => setStudentFilter(e.target.value)}
+            placeholder="Schüler filtern..."
+            className="bg-transparent text-xs text-slate-200 placeholder-slate-600 border-none outline-none w-full"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          <Calendar className="w-3 h-3 text-slate-500" />
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => setDateFrom(e.target.value)}
+            min={allDates.min}
+            max={allDates.max}
+            className="bg-slate-900 text-[10px] text-slate-300 border border-slate-700 rounded px-1.5 py-1 w-28"
+            placeholder="Von"
+          />
+          <span className="text-[10px] text-slate-600">–</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => setDateTo(e.target.value)}
+            min={allDates.min}
+            max={allDates.max}
+            className="bg-slate-900 text-[10px] text-slate-300 border border-slate-700 rounded px-1.5 py-1 w-28"
+            placeholder="Bis"
+          />
+        </div>
+        {(studentFilter || dateFrom || dateTo) && (
+          <button
+            onClick={() => { setStudentFilter(''); setDateFrom(''); setDateTo(''); }}
+            className="text-[10px] text-red-400 hover:text-red-300 px-1"
+          >
+            zurücksetzen
+          </button>
+        )}
+        {filteredGroups.length > 1 && (
+          <div className="flex gap-1 ml-auto">
+            <button onClick={collapseAll} className="text-[10px] text-slate-500 hover:text-slate-300 px-1.5 py-1 rounded border border-slate-700/50">
+              alle einklappen
+            </button>
+            <button onClick={expandAll} className="text-[10px] text-slate-500 hover:text-slate-300 px-1.5 py-1 rounded border border-slate-700/50">
+              alle ausklappen
+            </button>
+          </div>
+        )}
+      </div>
+
+      {showImport && false && (
         <div className="bg-slate-800/60 border border-slate-700/50 rounded-lg p-4 space-y-2">
           <div className="text-xs font-semibold text-slate-400 mb-1">
             Axinio-Kalender-Export (JSON) einfügen
@@ -441,9 +606,8 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
           />
           <div className="flex gap-2">
             <button
-              onClick={handleImport}
-              disabled={!importText.trim()}
-              className="text-xs px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-colors"
+              disabled
+              className="text-xs px-3 py-1.5 rounded bg-indigo-600 text-white opacity-40 cursor-not-allowed"
             >
               Importieren & anonymisieren
             </button>
@@ -503,25 +667,43 @@ export function StudentProgress({ sessions, schedule, onScheduleChange }: Props)
         </div>
       )}
 
-      {studentGroups.size === 0 && !editing && (
+      {filteredGroups.length === 0 && !editing && (
         <div className="text-xs text-slate-400 italic p-4 text-center">
-          Keine Schüler gefunden. Erstelle einen Stundenplan, um Sessions zuzuordnen.
+          {studentFilter || dateFrom || dateTo
+            ? 'Keine Schüler gefunden, die den Filtern entsprechen.'
+            : 'Keine Schüler gefunden. Erstelle einen Stundenplan, um Sessions zuzuordnen.'}
         </div>
       )}
 
-      {Array.from(studentGroups.entries())
-        .sort(([a], [b]) => {
-          const aUnmatched = a.includes('(unzugeordnet)');
-          const bUnmatched = b.includes('(unzugeordnet)');
-          if (aUnmatched !== bUnmatched) return aUnmatched ? 1 : -1;
-          return a.localeCompare(b);
-        })
-        .map(([name, studentSessions]) => (
-        <div key={name} className="bg-slate-900/60 border border-slate-700/50 rounded-lg p-4 space-y-3">
-          <div className="text-sm font-bold text-slate-100">{name}</div>
-          <StudentCharts sessions={studentSessions} />
-        </div>
-      ))}
+      {filteredGroups.map(([name, studentSessions]) => {
+        const isCollapsed = collapsed.has(name);
+        const range = getStudentDateRange(studentSessions);
+        return (
+          <div key={name} className="bg-slate-900/60 border border-slate-700/50 rounded-lg">
+            <button
+              onClick={() => toggleCollapse(name)}
+              className="w-full flex items-center justify-between p-3 text-sm font-bold text-slate-100 hover:bg-slate-800/40 transition-colors rounded-lg"
+            >
+              <div className="flex items-center gap-2">
+                {isCollapsed ? <ChevronRight className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                <span>{name}</span>
+                <span className="text-[10px] font-normal text-slate-500">{studentSessions.length} Sessions</span>
+              </div>
+              <div className="flex items-center gap-3 text-[10px] text-slate-500 font-normal">
+                <span>{range.min} – {range.max}</span>
+                <span>
+                  Drift Ø {(studentSessions.reduce((a, s) => a + s.avgDriftMs, 0) / studentSessions.length).toFixed(1)}ms
+                </span>
+              </div>
+            </button>
+            {!isCollapsed && (
+              <div className="px-3 pb-3">
+                <StudentCharts sessions={studentSessions} />
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

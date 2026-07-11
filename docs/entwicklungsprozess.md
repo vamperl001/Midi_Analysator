@@ -327,12 +327,15 @@ Hard Refresh (Strg+F5)
 │   └── components/
 │       ├── SvgCharts.tsx         # SVG-Charts (⚠️ enthält KDE)
 │       ├── AdvancedCharts.tsx    # Heatmaps, Histogramme
-│       ├── ProgressionChart.tsx  # Metrik-Entwicklung über Zeit
-│       ├── CreativeVisualizer.tsx# Jitter via medientechnikAnalysis
-│       ├── CalendarView.tsx      # Kalender-Übersicht
-│       ├── SessionComparison.tsx # Side-by-Side Vergleich
-│       ├── StudentProgress.tsx   # Einzelschüler-Ansicht
-│       ├── CountUp.tsx           # Animierter Zähler
+│       ├── ProgressionChart.tsx   # Metrik-Entwicklung über Zeit
+│       ├── CreativeVisualizer.tsx # Jitter via medientechnikAnalysis
+│       ├── CalendarView.tsx       # Kalender-Übersicht
+│       ├── SessionComparison.tsx  # Side-by-Side Vergleich
+│       ├── StudentProgress.tsx    # Einzelschüler-Ansicht
+│       ├── D3DriftHistogram.tsx   # D3.js Drift-Histogramm (ersetzt hand-SVG)
+│       ├── D3TrendChart.tsx       # D3.js Trend-Chart (ersetzt hand-SVG)
+│       ├── SvgCharts.tsx          # Container für D3-Komponenten
+│       ├── CountUp.tsx            # Animierter Zähler
 │       └── CustomResponsiveContainer.tsx
 ├── backend/
 │   ├── main.py                  # FastAPI-Router (kein SQL mehr)
@@ -359,6 +362,7 @@ Hard Refresh (Strg+F5)
 | **gridOffsetMs** | Zeitliche Abweichung einer Note vom Raster in Millisekunden |
 | **k-means (k=2)** | Clustering-Algorithmus, teilt Daten in zwei Gruppen |
 | **MIDI** | Musical Instrument Digital Interface — digitales Notenformat |
+| **D3.js** | JavaScript-Bibliothek für datengetriebene, interaktive SVG-Diagramme |
 | **Recharts** | React-Bibliothek für responsive Diagramme |
 | **Repository Pattern** | Isoliert Datenbankzugriffe von der Geschäftslogik |
 | **SPA** | Single Page Application — Client-seitig gerenderte Web-App |

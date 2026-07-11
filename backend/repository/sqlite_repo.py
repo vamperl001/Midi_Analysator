@@ -72,8 +72,7 @@ class SqliteSessionRepository:
                    session_time, session_weekday,
                    tempo, estimated_bpm, notes_count, avg_velocity, avg_drift_ms, avg_swing,
                    estimated_key, style_category, structure_category, focus_score,
-                   teacher_student_json, velocity_spread_json, polyphony_json,
-                   sliding_tempo_json, pedal_analysis_json, created_at
+                   created_at
             FROM sessions ORDER BY created_at DESC
         """).fetchall()
         conn.close()
@@ -96,11 +95,6 @@ class SqliteSessionRepository:
                 "styleCategory": d["style_category"],
                 "structureCategory": d["structure_category"],
                 "focusScore": d["focus_score"],
-                "teacherStudentSplit": json.loads(d["teacher_student_json"]),
-                "velocitySpread": json.loads(d["velocity_spread_json"]),
-                "polyphony": json.loads(d["polyphony_json"]),
-                "slidingTempo": json.loads(d["sliding_tempo_json"]),
-                "pedalAnalysis": json.loads(d["pedal_analysis_json"]),
                 "notes": [],
                 "createdAt": d["created_at"],
             })

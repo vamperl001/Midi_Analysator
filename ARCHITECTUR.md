@@ -1,5 +1,7 @@
 # MIDI Analysator — Architekturregeln
 
+> **Docker-Setup:** [`/srv/docker/SETUP.md`](../SETUP.md) – Übersicht aller Server-Dienste
+
 Version: 1.0 (IST-Stand Juli 2026)
 
 Diese Datei beschreibt die tatsächliche Architektur des Projekts,
